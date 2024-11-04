@@ -1,9 +1,10 @@
 """
-title: OpenAI Manifold Pipe
-author: open-webui
-author_url: https://github.com/open-webui
-funding_url: https://github.com/open-webui
-version: 0.1.2
+title: OpenAI Manifold Pipe with Cost Tracking
+author: Dmitriy Alergant
+author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
+version: 0.1.0
+required_open_webui_version: 0.3.17
+license: MIT
 """
 
 from pydantic import BaseModel, Field
@@ -93,12 +94,9 @@ class Pipe:
                 for model in models
                 if model.id
                 in (
-                    "chatgpt-4o-latest",
                     "gpt-4o",
                     "gpt-4o-mini",
                     "gpt-4-turbo",
-                    "gpt-4o-audio-preview",
-                    "gpt-4o-realtime-preview",
                     "o1-preview",
                     "o1-mini",
                 )

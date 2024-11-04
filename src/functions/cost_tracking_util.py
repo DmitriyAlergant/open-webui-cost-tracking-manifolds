@@ -1,21 +1,24 @@
-from pydantic import BaseModel, Field
+"""
+title: Usage Costs Tracking Util - shared module for manifolds
+author: Dmitriy Alergant
+author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
+version: 0.1.0
+required_open_webui_version: 0.3.17
+license: MIT
+"""
+
 from typing import Optional
 
-import json
-import os
+
 import time
 import asyncio
-import re
 
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from threading import Lock
 from typing import Any, Awaitable, Callable, Optional
 
-import sqlite3
 import tiktoken
-
-import pandas as pd
 
 
 class Config:
@@ -223,64 +226,69 @@ class ModelCostManager:
 
     pricing_data = {
         "openai.o1-preview": {
-            "input_cost_per_token": 0.003,
-            "output_cost_per_token": 0.045,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.015,
+            "output_cost_per_token": 0.060,
+            "cost_currency": "USD",
         },
         "openai.o1-mini": {
-            "input_cost_per_token": 0.000864,
-            "output_cost_per_token": 0.0090,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.003,
+            "output_cost_per_token": 0.012,
+            "cost_currency": "USD",
         },
+        "chatgpt-4o-latest": {
+            "input_cost_per_token": 0.005,
+            "output_cost_per_token": 0.015,
+            "cost_currency": "USD",
+        },        
         "openai.gpt-4o": {
-            "input_cost_per_token": 0.00072,
-            "output_cost_per_token": 0.00288,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.0025,
+            "output_cost_per_token": 0.0100,
+            "cost_currency": "USD",
         },
         "openai.gpt-4o-2024-05-13": {
-            "input_cost_per_token": 0.00144,
-            "output_cost_per_token": 0.00432,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.0050,
+            "output_cost_per_token": 0.0150,
+            "cost_currency": "USD",
         },
         "openai.gpt-4o-mini": {
-            "input_cost_per_token": 0.0000432,
-            "output_cost_per_token": 0.0001728,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.00015,
+            "output_cost_per_token": 0.00060,
+            "cost_currency": "USD",
         },
         "openai.gpt-4-turbo": {
-            "input_cost_per_token": 0.00288,
-            "output_cost_per_token": 0.00864,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.01,
+            "output_cost_per_token": 0.03,
+            "cost_currency": "USD",
         },
         "openai.gpt-4": {
-            "input_cost_per_token": 0.00864,
-            "output_cost_per_token": 0.01728,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.03,
+            "output_cost_per_token": 0.06,
+            "cost_currency": "USD",
         },
         "anthropic.claude-3-opus": {
-            "input_cost_per_token": 0.00432,
-            "output_cost_per_token": 0.0216,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.015,
+            "output_cost_per_token": 0.075,
+            "cost_currency": "USD",
         },
         "anthropic.claude-3-sonnet": {
-            "input_cost_per_token": 0.000864,
-            "output_cost_per_token": 0.00432,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.003,
+            "output_cost_per_token": 0.015,
+            "cost_currency": "USD",
         },
         "anthropic.claude-3-5-sonnet": {
-            "input_cost_per_token": 0.000864,
-            "output_cost_per_token": 0.00432,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.003,
+            "output_cost_per_token": 0.015,
+            "cost_currency": "USD",
         },
         "anthropic.claude-3-haiku": {
-            "input_cost_per_token": 0.000072,
-            "output_cost_per_token": 0.00036,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.00025,
+            "output_cost_per_token": 0.00125,
+            "cost_currency": "USD",
         },
         "anthropic.claude-3-5-haiku": {
-            "input_cost_per_token": 0.000072,
-            "output_cost_per_token": 0.00036,
-            "cost_currency": "RUB",
+            "input_cost_per_token": 0.00025,
+            "output_cost_per_token": 0.00125,
+            "cost_currency": "USD",
         },
         "yandexgpt.yandexgpt": {
             "input_cost_per_token": 0.00120,

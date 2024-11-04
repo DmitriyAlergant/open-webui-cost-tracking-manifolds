@@ -1,20 +1,21 @@
+"""
+title: Usage Costs reporting bot
+author: Dmitriy Alergant
+author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
+version: 0.1.0
+required_open_webui_version: 0.3.17
+license: MIT
+"""
+
 from pydantic import BaseModel, Field
-import json
-import os
-import time
-import asyncio
 import re
 
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Awaitable, Callable, Optional
+from typing import Optional
 
 from open_webui.utils.misc import get_last_user_message
 
-import sqlite3
-
 import pandas as pd
-
 
 class Config:
     DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
