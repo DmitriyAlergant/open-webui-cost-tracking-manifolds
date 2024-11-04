@@ -14,7 +14,7 @@ import time
 import asyncio
 
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, getcontext
 from threading import Lock
 from typing import Any, Awaitable, Callable, Optional
 
@@ -228,76 +228,91 @@ class ModelCostManager:
         "openai.o1-preview": {
             "input_cost_per_token": 0.015,
             "output_cost_per_token": 0.060,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "openai.o1-mini": {
             "input_cost_per_token": 0.003,
             "output_cost_per_token": 0.012,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "chatgpt-4o-latest": {
             "input_cost_per_token": 0.005,
             "output_cost_per_token": 0.015,
+            "token_units": 1000,
             "cost_currency": "USD",
-        },        
+        },
         "openai.gpt-4o": {
             "input_cost_per_token": 0.0025,
             "output_cost_per_token": 0.0100,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "openai.gpt-4o-2024-05-13": {
             "input_cost_per_token": 0.0050,
             "output_cost_per_token": 0.0150,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "openai.gpt-4o-mini": {
             "input_cost_per_token": 0.00015,
             "output_cost_per_token": 0.00060,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "openai.gpt-4-turbo": {
             "input_cost_per_token": 0.01,
             "output_cost_per_token": 0.03,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "openai.gpt-4": {
             "input_cost_per_token": 0.03,
             "output_cost_per_token": 0.06,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "anthropic.claude-3-opus": {
             "input_cost_per_token": 0.015,
             "output_cost_per_token": 0.075,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "anthropic.claude-3-sonnet": {
             "input_cost_per_token": 0.003,
             "output_cost_per_token": 0.015,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "anthropic.claude-3-5-sonnet": {
             "input_cost_per_token": 0.003,
             "output_cost_per_token": 0.015,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "anthropic.claude-3-haiku": {
             "input_cost_per_token": 0.00025,
             "output_cost_per_token": 0.00125,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "anthropic.claude-3-5-haiku": {
             "input_cost_per_token": 0.00025,
             "output_cost_per_token": 0.00125,
+            "token_units": 1000,
             "cost_currency": "USD",
         },
         "yandexgpt.yandexgpt": {
             "input_cost_per_token": 0.00120,
             "output_cost_per_token": 0.00120,
+            "token_units": 1,
             "cost_currency": "RUB",
         },
         "yandexgpt.yandexgpt-lite": {
             "input_cost_per_token": 0.00020,
             "output_cost_per_token": 0.00020,
+            "token_units": 1,
             "cost_currency": "RUB",
         },
     }
@@ -390,13 +405,19 @@ class CostCalculationManager:
                 f"{Config.INFO_PREFIX} Model '{self.model}' not found in costs json file!"
             )
 
+        getcontext().prec = 10
+
         input_cost_per_token = Decimal(
-            str(self.model_pricing_data.get("input_cost_per_token", 0))
-        )
+            self.model_pricing_data.get("input_cost_per_token", 0)
+        ) / Decimal(self.model_pricing_data.get("token_units", 1))
+
+        print(f"input_cost_per_token: {input_cost_per_token}")
 
         output_cost_per_token = Decimal(
-            str(self.model_pricing_data.get("output_cost_per_token", 0))
-        )
+            self.model_pricing_data.get("output_cost_per_token", 0)
+        ) / Decimal(self.model_pricing_data.get("token_units", 1))
+
+        print(f"output_cost_per_token: {output_cost_per_token}")
 
         input_cost = input_tokens * input_cost_per_token if input_tokens else 0
         output_cost = output_tokens * output_cost_per_token if output_tokens else 0
