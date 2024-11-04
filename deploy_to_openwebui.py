@@ -91,9 +91,7 @@ def deploy_function(filename, token):
 
 def deploy_functions(file_pattern, token):
     files = glob.glob(file_pattern)
-    if not files:
-        print(f"No files found matching the pattern: {file_pattern}")
-        return
+    files = [f for f in files if os.path.isfile(f)]
 
     results = []
     for filename in files:
