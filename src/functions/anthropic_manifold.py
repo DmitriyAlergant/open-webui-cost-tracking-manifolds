@@ -8,23 +8,17 @@ license: MIT
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, Union, Generator, Iterator, AsyncGenerator
-
-import traceback
+from typing import Union
 
 from open_webui.utils.misc import (
-    get_last_user_message,
-    get_last_assistant_message,
     get_messages_content,
     pop_system_message,
 )
 
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable
 
 import os
-import requests
 import sys
-import asyncio
 import time
 import json
 

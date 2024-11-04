@@ -28,6 +28,7 @@ class Config:
     DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
     INFO_PREFIX = "INFO:     " + __name__ + " -"
     DEBUG = True
+    COMPENSATION = 1.0
 
 
 from decimal import Decimal
@@ -397,8 +398,7 @@ class CostCalculationManager:
 
     def calculate_costs(self, input_tokens: int, output_tokens: int) -> Decimal:
 
-        # Adjust if needed
-        compensation = 1.0
+        compensation = Config.COMPENSATION
 
         if not self.model_pricing_data:
             print(
