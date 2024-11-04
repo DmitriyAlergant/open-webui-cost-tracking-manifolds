@@ -22,11 +22,11 @@ This repository contains another implementation of manifold functions for OpenAI
 
 1. **Clone the repo**
 
-2. **Import all functions manually one-by-one into Open WebUI Workspace Functions interface**
+2. **Create all functions manually one-by-one into Open WebUI Workspace Functions interface**
    - Each function ID must match the .py file name
    - Functions "usage_tracking_util" and "usage_tracking_util_pricing_data" are shared dependencies and MUST be installed and enabled for either of the manifolds to work
 
-3. **Configure function Valves**
+3. **Enable all functions and configure Valves (where exist)**
 
 ## Development and Scripted Re-Deployment
 
@@ -47,3 +47,10 @@ This repository contains another implementation of manifold functions for OpenAI
    ```
    python deploy_to_openwebui.py src/functions/*
    ```
+
+5. Deploy Pricing Data function to OpenWebUI:
+   ```
+   python deploy_to_openwebui.py src/functions/data/*
+   ```
+
+6.
