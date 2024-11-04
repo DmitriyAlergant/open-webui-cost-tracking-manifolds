@@ -27,7 +27,6 @@ class Config:
     DECIMALS = "0.00000001"
     DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
     INFO_PREFIX = "INFO:     " + __name__ + " -"
-    DEBUG = True
     COMPENSATION = 1.0
 
 
@@ -38,8 +37,9 @@ from open_webui.apps.webui.internal.db import get_db, engine
 
 
 class UsagePersistenceManager:
-    def __init__(self):
+    def __init__(self, debug=False):
         self._init_db()
+        self.DEBUG = debug
 
     def _init_db(self):
         """Initialize database and create table if it doesn't exist"""
@@ -122,7 +122,7 @@ class UsagePersistenceManager:
                 )
                 db.commit()
 
-                if Config.DEBUG:
+                if self.DEBUG:
                     print(
                         f"{Config.DEBUG_PREFIX} Persisted usage cost record for user {user_email}, model {model}, task {task}, input tokens {input_tokens}, output_tokens {output_tokens}, total_cost {total_cost}, model_used_by_cost_calculation {model_used_by_cost_calculation}"
                     )
@@ -209,7 +209,7 @@ class UsagePersistenceManager:
                     for row in rows
                 ]
 
-                if Config.DEBUG:
+                if self.DEBUG:
                     print(
                         f"{Config.DEBUG_PREFIX} Retrieved total costs for {len(summary)} user-model-currency-date combinations"
                     )
@@ -224,6 +224,9 @@ class UsagePersistenceManager:
 
 
 class ModelCostManager:
+
+    def __init__(self, debug:bool = False):
+        self.DEBUG = debug
 
     pricing_data = {
         "openai.o1-preview": {
@@ -318,23 +321,21 @@ class ModelCostManager:
         },
     }
 
-    @staticmethod
-    def _normalize_model_name(name: str, strip_prefix: bool = False) -> str:
+    def _normalize_model_name(self, name: str, strip_prefix: bool = False) -> str:
         name = name.lower()
         if strip_prefix and "." in name:
             name = name.split(".", 1)[1]
         return name
 
-    @staticmethod
-    def _find_best_match(query: str, strip_prefix: bool = False) -> str:
+    def _find_best_match(self, query: str, strip_prefix: bool = False) -> str:
 
-        normalized_query = ModelCostManager._normalize_model_name(query, strip_prefix)
+        normalized_query = self._normalize_model_name(query, strip_prefix)
 
         best_match = None
         longest_match_length = 0
 
-        for key in ModelCostManager.pricing_data.keys():
-            normalized_key = ModelCostManager._normalize_model_name(key, strip_prefix)
+        for key in self.pricing_data.keys():
+            normalized_key = self._normalize_model_name(key, strip_prefix)
 
             if normalized_query.startswith(normalized_key):
                 match_length = len(normalized_key)
@@ -344,29 +345,28 @@ class ModelCostManager:
 
         return best_match
 
-    @staticmethod
-    def get_model_data(model):
+    def get_model_data(self, model):
         model = model.lower().strip()
 
-        if model in ModelCostManager.pricing_data:
-            if Config.DEBUG:
+        if model in self.pricing_data:
+            if self.DEBUG:
                 print(
                     f"{Config.DEBUG_PREFIX} Using model pricing data for '{model}' (exact match)"
                 )
-            return model, ModelCostManager.pricing_data[model]
+            return model, self.pricing_data[model]
         else:
-            if Config.DEBUG:
+            if self.DEBUG:
                 print(
                     f"{Config.DEBUG_PREFIX} Searching best pricing data match for model named '{model}'"
                 )
 
-            best_match = ModelCostManager._find_best_match(model, strip_prefix=False)
+            best_match = self._find_best_match(model, strip_prefix=False)
 
             if best_match is None:
                 print(
-                    f"{Config.DEBUG_PREFIX} No match for full model name. Trying without provider prefix: '{ModelCostManager._normalize_model_name(model, True)}'"
+                    f"{Config.DEBUG_PREFIX} No pricing data match for full model name {model}. Trying without provider prefix: '{self._normalize_model_name(model, True)}'"
                 )
-                best_match = ModelCostManager._find_best_match(model, strip_prefix=True)
+                best_match = self._find_best_match(model, strip_prefix=True)
 
             if best_match is None:
                 print(
@@ -374,23 +374,27 @@ class ModelCostManager:
                 )
                 return "unknown", {}
 
-            if Config.DEBUG:
+            if self.DEBUG:
                 print(
                     f"{Config.DEBUG_PREFIX} Using model pricing data for '{best_match}'"
                 )
 
-            return best_match, ModelCostManager.pricing_data.get(best_match, {})
+            return best_match, self.pricing_data.get(best_match, {})
 
 
 class CostCalculationManager:
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, model_cost_manager: ModelCostManager, debug:bool = False):
 
         self.model = model
 
+        self.model_cost_manager = model_cost_manager
+
+        self.DEBUG = debug
+
         # Establish model pricing data
         (self.model_used_by_cost_calculation, self.model_pricing_data) = (
-            ModelCostManager.get_model_data(model)
+            model_cost_manager.get_model_data(model)
         )
 
         # Load tiktoken encoding
@@ -411,13 +415,9 @@ class CostCalculationManager:
             self.model_pricing_data.get("input_cost_per_token", 0)
         ) / Decimal(self.model_pricing_data.get("token_units", 1))
 
-        print(f"input_cost_per_token: {input_cost_per_token}")
-
         output_cost_per_token = Decimal(
             self.model_pricing_data.get("output_cost_per_token", 0)
         ) / Decimal(self.model_pricing_data.get("token_units", 1))
-
-        print(f"output_cost_per_token: {output_cost_per_token}")
 
         input_cost = input_tokens * input_cost_per_token if input_tokens else 0
         output_cost = output_tokens * output_cost_per_token if output_tokens else 0
@@ -440,14 +440,14 @@ class CostCalculationManager:
         try:
             enc = tiktoken.encoding_for_model(model)
 
-            if Config.DEBUG:
+            if self.DEBUG:
                 print(
                     f"{Config.DEBUG_PREFIX} Tiktoken encoding found for model {model}, loaded"
                 )
 
             return enc
         except KeyError:
-            if Config.DEBUG:
+            if self.DEBUG:
                 print(
                     f"{Config.DEBUG_PREFIX} Encoding for model {model} not found. Using cl100k_base for computing tokens."
                 )
@@ -459,14 +459,19 @@ class CostCalculationManager:
 
 
 class CostTrackingManager:
-    def __init__(self, model: str, __user__: dict, task: str):
+
+    def __init__(self, model: str, __user__: dict, task: str, debug: bool = False):
         self.model = model
         self.__user__ = __user__
         self.task = task
 
-        self.cost_calculation_manager = CostCalculationManager(model)
+        self.DEBUG = debug
 
-        self.usage_persistence_manager = UsagePersistenceManager()
+        self.model_cost_manager = ModelCostManager (debug=debug)
+
+        self.cost_calculation_manager = CostCalculationManager(model=model, model_cost_manager=self.model_cost_manager, debug=debug)
+
+        self.usage_persistence_manager = UsagePersistenceManager(debug=debug)
 
     async def update_status_message(
         self,
@@ -483,7 +488,7 @@ class CostTrackingManager:
         processing_time = current_time - start_time
 
         if __event_emitter__ is None:
-            if Config.DEBUG:
+            if self.DEBUG:
                 print(
                     f"{Config.DEBUG_PREFIX} __event_emitter__ is None. Not sending status update event"
                 )
@@ -527,7 +532,7 @@ class CostTrackingManager:
             }
         )
 
-        if Config.DEBUG:
+        if self.DEBUG:
             print(f"{Config.DEBUG_PREFIX} status string update: {status_message}")
 
     def count_tokens(self, message_content: str) -> int:

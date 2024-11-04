@@ -117,15 +117,15 @@ class Pipe:
         __task__,
     ) -> Union[str, StreamingResponse]:
 
-        # Initialize CostTrackingManager from "costs_tracking_util" function
+        # Initialize CostTrackingManager from "usage_tracking_util" function
 
-        cost_tracker_module_name = "function_costs_tracking_util"
+        cost_tracker_module_name = "function_usage_tracking_util"
         if cost_tracker_module_name not in sys.modules:
             raise Exception(f"Module {cost_tracker_module_name} is not loaded")
         cost_tracker_module = sys.modules[cost_tracker_module_name]
 
         cost_tracking_manager = cost_tracker_module.CostTrackingManager(
-            body["model"], __user__, __task__
+            body["model"], __user__, __task__, debug=self.valves.DEBUG
         )
 
         model_id = body["model"][body["model"].find(".") + 1 :]
