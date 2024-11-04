@@ -73,9 +73,8 @@ class Pipe:
 
     def get_anthropic_models(self):
         return [
-            {"id": "claude-3-haiku-20240307", "name": "claude-3-haiku"},
             {"id": "claude-3-opus-20240229", "name": "claude-3-opus"},
-            {"id": "claude-3-sonnet-20240229", "name": "claude-3-sonnet"},
+            {"id": "claude-3-5-haiku-20241022", "name": "claude-3.5-haiku"},
             {"id": "claude-3-5-sonnet-20240620", "name": "claude-3.5-sonnet"},
             {"id": "claude-3-5-sonnet-20241022", "name": "claude-3.6-sonnet (3.5-new)"},
         ]
