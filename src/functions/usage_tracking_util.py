@@ -7,6 +7,8 @@ required_open_webui_version: 0.3.17
 license: MIT
 """
 
+from pydantic import BaseModel, Field
+
 from typing import Optional
 
 
@@ -323,8 +325,15 @@ class ModelCostManager:
 
     def _normalize_model_name(self, name: str, strip_prefix: bool = False) -> str:
         name = name.lower()
+        
+        # Always remove '_manifold' from the prefix if present
+        if '_manifold' in name:
+            parts = name.split('_manifold', 1)
+            name = parts[0] + (parts[1] if len(parts) > 1 else '')
+        
         if strip_prefix and "." in name:
             name = name.split(".", 1)[1]
+        
         return name
 
     def _find_best_match(self, query: str, strip_prefix: bool = False) -> str:
@@ -595,8 +604,9 @@ class CostTrackingManager:
 class Pipe:
     def __init__(self):
         self.type = "manifold"
-        self.id = "cust-tracking-util"
-        self.name = "Costs Tracking Util"
+        self.id = "usage-tracking-util"
+        self.name = "Usage Tracking Util"
+        
         pass
 
     def pipes(self) -> list[dict]:
