@@ -1,7 +1,7 @@
 """
-title: Anthropic Manifold Pipe - Custom
+title: Anthropic Manifold Pipe with Cost Tracking
 author: Dmitriy Alergant
-author_url: https://github.com/... TBD
+author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
 required_open_webui_version: 0.3.17
 license: MIT
