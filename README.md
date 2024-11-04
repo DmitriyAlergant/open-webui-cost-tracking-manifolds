@@ -8,6 +8,7 @@ This repository contains another implementation of manifold functions for OpenAI
 
 - **Batch and Streaming completions** leverages official OpenAI and Anthropic SDKs
 - **Usage data logged to DB** new table usage_costs in the main SQLite or Postgres DB
+- **Usage tracking works both for UI and API usage** tracking DOES NOT depend on /chat/completed calls
 - **Calculates usage costs** pricing data statically defined in a standalone function module, edit it as needed
 - **Displays status message** with token counts, estimated costs, request status
 - **Built-in reporting on usage costs** with 'Usage Reporting Bot' model pipe. Talk to it via chat
