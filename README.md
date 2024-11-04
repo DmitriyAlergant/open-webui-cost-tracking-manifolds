@@ -6,18 +6,43 @@ This repository contains another implementation of manifold functions for OpenAI
 
 ## Features
 
-- **Batch and Streaming completions** - Leverages official OpenAI and Anthropic SDKs
-- **Usage data logged to DB** - new table usage_costs
-- **Calculates usage costs** - pricing data statically defined in cost_tracking_util
-- **Displays status message** - token counts, estimated costs, request status
-- **Built-in reporting on usage costs** - talk to 'Usage Reporting Bot' model pipe
+- **Batch and Streaming completions** leverages official OpenAI and Anthropic SDKs
+- **Usage data logged to DB** new table usage_costs in the main SQLite or Postgres DB
+- **Calculates usage costs** pricing data statically defined in a standalone function module, edit it as needed
+- **Displays status message** with token counts, estimated costs, request status
+- **Built-in reporting on usage costs** with 'Usage Reporting Bot' model pipe. Talk to it via chat
 
 ## Requirements
 
-- Python 3.7+
+- Python 3.11+
 - OpenWebUI v0.3.30+
 
 ## Installation
 
-1. Download the source and import into Open WebUI functions interface.
-2. cost_tracking_util function is a dependency, and must also be installed and enabled
+1. **Clone the repo**
+
+2. **Import all functions manually one-by-one into Open WebUI Workspace Functions interface**
+   - Each function ID must match the .py file name
+   - Functions "usage_tracking_util" and "usage_tracking_util_pricing_data" are shared dependencies and MUST be installed and enabled for either of the manifolds to work
+
+3. **Configure function Valves**
+
+## Development and Scripted Re-Deployment
+
+1. (Optional) Activate virtual pyenv 
+
+2. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+3. Create `.env` file with the following content:
+   ```
+   OPENWEBUI_API_URL=http://localhost:3000
+   OPENWEBUI_API_KEY=sk-....
+   ```
+
+4. Deploy functions to OpenWebUI:
+   ```
+   python deploy_to_openwebui.py src/functions/*
+   ```
