@@ -14,6 +14,7 @@ from typing import Optional
 
 import time
 import asyncio
+import sys
 
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, getcontext
@@ -133,195 +134,19 @@ class UsagePersistenceManager:
                 print(f"{Config.INFO_PREFIX} Database error in log_usage_fact: {e}")
                 raise
 
-    async def get_usage_stats(
-        self,
-        user_email: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ):
-        """
-        Retrieve total costs by user, summarized per user, model, currency, and date.
-
-        :param user_email: Optional user email for filtering results
-        :param start_date: Optional start date for filtering results
-        :param end_date: Optional end date for filtering results
-        :return: List of dictionaries containing summarized cost data
-        """
-
-        is_sqlite = "sqlite" in engine.url.drivername
-
-        date_function = (
-            "strftime('%Y-%m-%d', timestamp)"
-            if is_sqlite
-            else "to_char(timestamp, 'YYYY-MM-DD')"
-        )
-
-        query = f"""
-            SELECT 
-                user_email,
-                model,
-                cost_currency,
-                {date_function} as date,
-                SUM(total_cost) as total_cost,
-                SUM(input_tokens) as total_input_tokens,
-                SUM(output_tokens) as total_output_tokens
-            FROM usage_costs
-            {{where_clause}}
-            GROUP BY user_email, model, cost_currency, {date_function}
-            ORDER BY user_email, {date_function}, model, cost_currency
-            """
-
-        where_conditions = []
-        params = {}
-
-        if user_email:
-            where_conditions.append("user_email = :user_email")
-            params["user_email"] = user_email
-
-        if start_date:
-            where_conditions.append("timestamp >= :start_date")
-            params["start_date"] = start_date
-
-        if end_date:
-            # Include the entire end_date by setting it to the start of the next day
-            next_day = end_date + timedelta(days=1)
-            where_conditions.append("timestamp < :end_date")
-            params["end_date"] = next_day
-
-        where_clause = (
-            "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
-        )
-        query = query.format(where_clause=where_clause)
-
-        try:
-            with get_db() as db:
-                result = db.execute(text(query), params)
-                rows = result.fetchall()
-
-                summary = [
-                    {
-                        "user_email": row.user_email,
-                        "model": row.model,
-                        "currency": row.cost_currency,
-                        "date": row.date,
-                        "total_cost": float(row.total_cost),
-                        "total_input_tokens": row.total_input_tokens,
-                        "total_output_tokens": row.total_output_tokens,
-                    }
-                    for row in rows
-                ]
-
-                if self.DEBUG:
-                    print(
-                        f"{Config.DEBUG_PREFIX} Retrieved total costs for {len(summary)} user-model-currency-date combinations"
-                    )
-
-                return summary
-
-        except Exception as e:
-            print(
-                f"{Config.INFO_PREFIX} Database error in get_total_costs_by_user: {e}"
-            )
-            raise
-
 
 class ModelCostManager:
 
     def __init__(self, debug:bool = False):
         self.DEBUG = debug
+        self.pricing_data = self._load_pricing_data()
 
-    pricing_data = {
-        "openai.o1-preview": {
-            "input_cost_per_token": 0.015,
-            "output_cost_per_token": 0.060,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "openai.o1-mini": {
-            "input_cost_per_token": 0.003,
-            "output_cost_per_token": 0.012,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "chatgpt-4o-latest": {
-            "input_cost_per_token": 0.005,
-            "output_cost_per_token": 0.015,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "openai.gpt-4o": {
-            "input_cost_per_token": 0.0025,
-            "output_cost_per_token": 0.0100,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "openai.gpt-4o-2024-05-13": {
-            "input_cost_per_token": 0.0050,
-            "output_cost_per_token": 0.0150,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "openai.gpt-4o-mini": {
-            "input_cost_per_token": 0.00015,
-            "output_cost_per_token": 0.00060,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "openai.gpt-4-turbo": {
-            "input_cost_per_token": 0.01,
-            "output_cost_per_token": 0.03,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "openai.gpt-4": {
-            "input_cost_per_token": 0.03,
-            "output_cost_per_token": 0.06,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "anthropic.claude-3-opus": {
-            "input_cost_per_token": 0.015,
-            "output_cost_per_token": 0.075,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "anthropic.claude-3-sonnet": {
-            "input_cost_per_token": 0.003,
-            "output_cost_per_token": 0.015,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "anthropic.claude-3-5-sonnet": {
-            "input_cost_per_token": 0.003,
-            "output_cost_per_token": 0.015,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "anthropic.claude-3-haiku": {
-            "input_cost_per_token": 0.00025,
-            "output_cost_per_token": 0.00125,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "anthropic.claude-3-5-haiku": {
-            "input_cost_per_token": 0.00025,
-            "output_cost_per_token": 0.00125,
-            "token_units": 1000,
-            "cost_currency": "USD",
-        },
-        "yandexgpt.yandexgpt": {
-            "input_cost_per_token": 0.00120,
-            "output_cost_per_token": 0.00120,
-            "token_units": 1,
-            "cost_currency": "RUB",
-        },
-        "yandexgpt.yandexgpt-lite": {
-            "input_cost_per_token": 0.00020,
-            "output_cost_per_token": 0.00020,
-            "token_units": 1,
-            "cost_currency": "RUB",
-        },
-    }
+    def _load_pricing_data(self):
+        pricing_data_module_name = "function_usage_tracking_util_pricing_data"
+        if pricing_data_module_name not in sys.modules:
+            raise Exception(f"Module {pricing_data_module_name} is not loaded")
+        pricing_data_module = sys.modules[pricing_data_module_name]
+        return pricing_data_module.pricing_data
 
     def _normalize_model_name(self, name: str, strip_prefix: bool = False) -> str:
         name = name.lower()
