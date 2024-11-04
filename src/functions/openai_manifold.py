@@ -36,8 +36,8 @@ class Pipe:
             default="",
             description="Required API key to retrieve the model list.",
         )
-        ENABLED_MODELS: List[str] = Field(
-            default=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1-preview", "o1-mini"],
+        ENABLED_MODELS: str = Field(
+            default="gpt-4o,gpt-4o-mini,gpt-4-turbo,o1-preview,o1-mini",
             description="List of enabled model IDs",
         )
         DEBUG: bool = Field(default=False, description="Display debugging messages")
@@ -85,7 +85,7 @@ class Pipe:
                     "name": model.id,
                 }
                 for model in models
-                if model.id in self.valves.ENABLED_MODELS
+                if model.id in self.valves.ENABLED_MODELS.split(',')
             ]
 
         except Exception as e:
