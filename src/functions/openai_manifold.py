@@ -9,7 +9,7 @@ license: MIT
 
 from pydantic import BaseModel, Field
 
-from typing import Union
+from typing import Union, List
 
 from open_webui.utils.misc import get_messages_content
 
@@ -28,7 +28,6 @@ from openai import OpenAI, AsyncOpenAI
 class Pipe:
 
     class Valves(BaseModel):
-
         OPENAI_API_BASE_URL: str = Field(
             default="https://api.openai.com/v1",
             description="The base URL for OpenAI API endpoints.",
@@ -37,9 +36,11 @@ class Pipe:
             default="",
             description="Required API key to retrieve the model list.",
         )
+        ENABLED_MODELS: List[str] = Field(
+            default=["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1-preview", "o1-mini"],
+            description="List of enabled model IDs",
+        )
         DEBUG: bool = Field(default=False, description="Display debugging messages")
-
-        pass
 
     def __init__(self):
         self.type = "manifold"
@@ -49,8 +50,6 @@ class Pipe:
         self.valves = self.Valves()
 
         self.debug_prefix = "DEBUG:    " + __name__ + " -"
-
-        pass
 
     def init_openai_client(self, async_client=False):
 
@@ -72,7 +71,6 @@ class Pipe:
             )
 
     def pipes(self):
-
         openai_client = self.init_openai_client(async_client=False)
 
         try:
@@ -87,18 +85,10 @@ class Pipe:
                     "name": model.id,
                 }
                 for model in models
-                if model.id
-                in (
-                    "gpt-4o",
-                    "gpt-4o-mini",
-                    "gpt-4-turbo",
-                    "o1-preview",
-                    "o1-mini",
-                )
+                if model.id in self.valves.ENABLED_MODELS
             ]
 
         except Exception as e:
-
             _, _, tb = sys.exc_info()
             print(f"Error on line {tb.tb_lineno}: {e}")
 
