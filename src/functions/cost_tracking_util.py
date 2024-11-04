@@ -482,7 +482,7 @@ class CostTrackingManager:
                 if reasoning_tokens
                 else ""
             ),
-            f"Cost {cost_str}" if cost_str else "",
+            f"Cost {cost_str}" if cost_str and "Requested" not in status else "",
             status if status else "",
         ]
 
@@ -556,163 +556,14 @@ class CostTrackingManager:
                 )
             )
 
-    async def process_usage_stats_command(self, command: str, __user__: dict):
-        """
-        Process the usage stats command and return a formatted report.
-
-        :param command: The command string (e.g., "/usage_stats", "/usage_stats 30d", "/usage_stats all", "/usage_stats all 30d", "/usage_stats user@email.com", or "/usage_stats user@email.com 30d")
-        :param __user__: Dictionary containing user information
-        :return: A formatted string report of usage stats
-        """
-        print(f"process_usage_stats_command: {command}")
-
-        # Extract the number of days (optional) and check for 'all' flag or specific user email
-        match = re.match(
-            r"/usage_stats(?:\s+all|\s+([^\s]+@[^\s]+))?(?:\s+(\d+)d)?", command
-        )
-        if not match:
-            return "Invalid command format. Use '/usage_stats [days]', '/usage_stats all [days]', or '/usage_stats user@email.com [days]'."
-
-        specific_user = match.group(1)
-        days = int(match.group(2)) if match.group(2) else 30
-        is_all_users = "all" in command.lower()
-
-        if is_all_users:
-            return await self.generate_all_users_report(days)
-        elif specific_user:
-            return await self.generate_single_user_report(days, specific_user)
-        else:
-            return await self.generate_single_user_report(days, __user__["email"])
-
-    async def generate_all_users_report(self, days: int):
-        """
-        Generate a usage report for all users.
-
-        :param days: Number of days to include in the report
-        :return: A formatted string report of usage stats for all users
-        """
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-
-        # Get usage stats for all users
-        stats = await self.usage_persistence_manager.get_usage_stats(
-            user_email=None, start_date=start_date, end_date=end_date
-        )
-
-        if not stats:
-            return f"No usage data found for any users in the last {days} days."
-
-        df = pd.DataFrame(stats)
-
-        # Total usage costs by currency
-        currency_totals = df.groupby("currency")["total_cost"].sum().round(2)
-
-        # Prepare the report
-        report = f"## Usage Report for All Users\n"
-        report += f"### Period: {start_date.date()} to {end_date.date()}\n\n"
-        report += "#### Total Usage Costs:\n"
-
-        for currency, total in currency_totals.items():
-            if currency in ["RUB", "RUR"]:
-                report += f"- **{total:.2f} ₽**\n"
-            elif currency == "USD":
-                report += f"- **{total:.2f} $**\n"
-            else:
-                report += f"- **{total:.2f} {currency}**\n"
-
-        # Top 20 users
-        df["cost_rub"] = df.apply(
-            lambda row: (
-                row["total_cost"]
-                if row["currency"] == "RUB"
-                else row["total_cost"] * 100
-            ),
-            axis=1,
-        )
-        user_totals = (
-            df.groupby("user_email")
-            .agg(
-                {
-                    "cost_rub": "sum",
-                }
-            )
-            .round(2)
-            .nlargest(20, "cost_rub")
-        )
-
-        report += "\n#### Top 20 Users by Cost:\n"
-        report += "| User | Cost (RUB) |\n"
-        report += "|------|------------|\n"
-        for user, row in user_totals.iterrows():
-            report += f"| {user} | {row['cost_rub']:.2f} ₽ |\n"
-
-        return report
-
-    async def generate_single_user_report(self, days: int, user_email: str):
-
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-
-        # Get usage stats
-        stats = await self.usage_persistence_manager.get_usage_stats(
-            user_email=user_email, start_date=start_date, end_date=end_date
-        )
-
-        if not stats:
-            return f"No usage data found for user {user_email} in the last {days} days."
-
-        # Convert to DataFrame for easy manipulation
-        df = pd.DataFrame(stats)
-
-        # Group by currency and sum the total cost
-        currency_totals = df.groupby("currency")["total_cost"].sum().round(2)
-
-        # Prepare the report
-        report = f"## Usage Report for {user_email}\n"
-        report += f"### Period: {start_date.date()} to {end_date.date()}\n\n"
-        report += "#### Total Usage Costs:\n"
-
-        for currency, total in currency_totals.items():
-            if currency in ["RUB", "RUR"]:
-                report += f"- **{total:.2f} ₽**\n"
-            elif currency == "USD":
-                report += f"- **{total:.2f} $**\n"
-            else:
-                report += f"- **{total:.2f} {currency}**\n"
-
-        # Add total tokens information
-        total_input_tokens = df["total_input_tokens"].sum()
-        total_output_tokens = df["total_output_tokens"].sum()
-        report += "\n#### Total Tokens Used:\n"
-        report += f"- Input tokens:  **{total_input_tokens:,}**\n"
-        report += f"- Output tokens: **{total_output_tokens:,}**\n"
-
-        # Convert costs to USD for ranking
-        df["cost_usd"] = df.apply(
-            lambda row: (
-                row["total_cost"]
-                if row["currency"] == "USD"
-                else row["total_cost"] / 100
-            ),
-            axis=1,
-        )
-
-        # Add top 5 models by usage
-        top_models = df.groupby("model")["cost_usd"].sum().nlargest(5).round(2)
-        report += "\n#### Top 5 Models by Cost:\n"
-        for model, cost in top_models.items():
-            original_currency = df[df["model"] == model]["currency"].iloc[0]
-            original_cost = df[df["model"] == model]["total_cost"].sum().round(2)
-            if original_currency in ["RUB", "RUR"]:
-                report += f"- **{model}**: {original_cost:.2f} ₽\n"
-            elif original_currency == "USD":
-                report += f"- **{model}**: {original_cost:.2f} $\n"
-            else:
-                report += f"- **{model}**: {original_cost:.2f} {original_currency}\n"
-
-        return report
-
 
 # For OpenWebUI to accept this as a Function Module, there has to be a Filter or Pipe or Action class
-class Filter:
-    pass
+class Pipe:
+    def __init__(self):
+        self.type = "manifold"
+        self.id = "cust-tracking-util"
+        self.name = "Costs Tracking Util"
+        pass
+
+    def pipes(self) -> list[dict]:
+        return []

@@ -48,12 +48,13 @@ class Pipe:
             {"id": "admin.usage-reporting-bot", "name": "usage-reporting-bot"},
         ]
 
-    def pipe(self, body: dict, __user__: dict) -> str:
+    def pipe(self, body: dict, __user__: dict, metadata: dict) -> str:
 
         command = get_last_user_message(body["messages"])
 
         if self.valves.DEBUG:
             print(f"usage-reporting-bot ({__user__['email']}): {command}")
+            print(f"Metadata: {metadata}")
 
         if command == "/help":
             return self.print_help()

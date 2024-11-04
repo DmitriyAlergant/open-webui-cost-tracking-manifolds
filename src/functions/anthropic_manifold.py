@@ -30,13 +30,13 @@ import json
 
 from fastapi.responses import StreamingResponse
 
-from collections.abc import Iterator
+from anthropic import Anthropic, AsyncAnthropic
 
 
 class Pipe:
     class Valves(BaseModel):
         ANTHROPIC_API_BASE_URL: str = Field(
-            default="https://api.anthropic.com/v1",
+            default="https://api.anthropic.com",
             description="The base URL for Anthropic API endpoints.",
         )
         ANTHROPIC_API_KEY: str = Field(
@@ -58,6 +58,25 @@ class Pipe:
 
         pass
 
+    def init_anthropic_client(self, async_client=False):
+
+        if not self.valves.ANTHROPIC_API_KEY:
+            raise Exception(
+                f"Anthropic Manifold function: ANTHROPIC_API_KEY valve not provided"
+            )
+
+        if async_client:
+            return AsyncAnthropic(
+                api_key=self.valves.ANTHROPIC_API_KEY,
+                base_url=self.valves.ANTHROPIC_API_BASE_URL,
+            )
+
+        else:
+            return Anthropic(
+                api_key=self.valves.OPENAI_API_KEY,
+                base_url=self.valves.OPENAI_API_BASE_URL,
+            )
+
     def get_anthropic_models(self):
         return [
             {"id": "claude-3-haiku-20240307", "name": "claude-3-haiku"},
@@ -68,19 +87,12 @@ class Pipe:
         ]
 
     def pipes(self):
+
         if self.valves.ANTHROPIC_API_KEY:
-            try:
-                # For now, return the hardcoded list of models
-                models = self.get_anthropic_models()
-                return models
-            except Exception as e:
-                print(f"Error: {e}")
-                return [
-                    {
-                        "id": "error",
-                        "name": "Could not fetch models from Anthropic, please update the API Key in the valves.",
-                    },
-                ]
+
+            models = self.get_anthropic_models()
+            return models
+
         else:
             print(f"Anthropic Manifold function: ANTHROPIC_API_KEY valve not provided")
             return [
@@ -98,11 +110,6 @@ class Pipe:
         __task__,
     ) -> Union[str, StreamingResponse]:
 
-        if not self.valves.ANTHROPIC_API_KEY:
-            raise Exception(
-                f"Anthropic Manifold function: ANTHROPIC_API_KEY valve not provided"
-            )
-
         # Initialize CostTrackingManager from "costs_tracking_util" function
 
         cost_tracker_module_name = "function_costs_tracking_util"
@@ -114,13 +121,13 @@ class Pipe:
             body["model"], __user__, __task__
         )
 
-        # Remove the "anthropic/" prefix from the model name
+        # Remove the "anthropic." prefix from the model name
         model_id = body["model"][body["model"].find(".") + 1 :]
 
         # Extract system message and pop from messages
         system_message, messages = pop_system_message(body["messages"])
 
-        # Process messages as per the existing Anthropic plugin
+        # Pre-process chat messages as per Anthropic requirements
         processed_messages = []
         image_count = 0
         total_image_size = 0
@@ -196,32 +203,19 @@ class Pipe:
                 persist_usage=False,
             )
 
-            headers = {
-                "x-api-key": self.valves.ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            }
+            # Init Anthropic API Client (Async)
 
-            url = f"{self.valves.ANTHROPIC_API_BASE_URL}/messages"
+            if self.valves.DEBUG:
+                os.environ["ANTHROPIC_LOG"] = "debug"
 
-            if body.get("stream", False):
+            anthropic_client = self.init_anthropic_client(async_client=True)
+
+            if body.get("stream", False) == True:
+
+                # STREAMING REQUEST
 
                 if self.valves.DEBUG:
                     print(f"{self.debug_prefix} sending a streaming request...")
-
-                response = requests.post(
-                    url=url,
-                    headers=headers,
-                    json=payload,
-                    stream=True,
-                )
-
-                response.raise_for_status()
-
-                if response.status_code != 200:
-                    raise Exception(
-                        f"HTTP Error {response.status_code}: {response.text()}"
-                    )
 
                 async def stream_generator():
                     streamed_content_buffer = ""
@@ -231,59 +225,51 @@ class Pipe:
                     stream_completed = False
 
                     try:
-                        for line in response.iter_lines():
-                            if line:
-                                line = line.decode("utf-8").strip()
-                                if line.startswith("data: "):
-                                    try:
-                                        data = json.loads(line[6:])
 
-                                        if data["type"] == "content_block_start":
-                                            content = data["content_block"]["text"]
-                                            streamed_content_buffer += content
-                                            yield f"data: {json.dumps({'choices': [{'delta': {'content': content}}]})}\n\n"
+                        payload.pop("stream")  # avoid duplicate json attribute
 
-                                        elif data["type"] == "content_block_delta":
-                                            delta = data["delta"]["text"]
-                                            streamed_content_buffer += delta
-                                            yield f"data: {json.dumps({'choices': [{'delta': {'content': delta}}]})}\n\n"
+                        async with anthropic_client.messages.stream(
+                            **payload
+                        ) as stream:
+                            async for content in stream.text_stream:
 
-                                        elif data["type"] == "message_stop":
-                                            break
+                                # Buffer content for costs calculation (once a second
 
-                                        elif data["type"] == "message":
-                                            for content_item in data.get("content", []):
-                                                if content_item["type"] == "text":
-                                                    content = content_item["text"]
-                                                    streamed_content_buffer += content
-                                                    yield f"data: {json.dumps({'choices': [{'delta': {'content': content}}]})}\n\n"
+                                streamed_content_buffer += content
 
-                                    except json.JSONDecodeError:
-                                        if self.valves.DEBUG:
-                                            print(f"Failed to parse JSON: {line}")
+                                # Return emulating an SSE stream
 
-                            current_time = time.time()
-                            if current_time - last_update_time >= 1:
+                                content_json = {
+                                    "choices": [
+                                        {"index": 0, "delta": {"content": content}}
+                                    ]
+                                }
+                                yield f"data: {json.dumps(content_json)}\n\n"
 
-                                generated_tokens += cost_tracking_manager.count_tokens(
-                                    streamed_content_buffer
-                                )
+                                current_time = time.time()
+                                if current_time - last_update_time >= 1:
 
-                                cost_tracking_manager.calculate_costs_update_status_and_persist(
-                                    input_tokens=input_tokens,
-                                    generated_tokens=generated_tokens,
-                                    reasoning_tokens=None,
-                                    start_time=start_time,
-                                    __event_emitter__=__event_emitter__,
-                                    status="Streaming...",
-                                    persist_usage=False,
-                                )
+                                    generated_tokens += (
+                                        cost_tracking_manager.count_tokens(
+                                            streamed_content_buffer
+                                        )
+                                    )
 
-                                streamed_content_buffer = ""
-                                last_update_time = current_time
+                                    cost_tracking_manager.calculate_costs_update_status_and_persist(
+                                        input_tokens=input_tokens,
+                                        generated_tokens=generated_tokens,
+                                        reasoning_tokens=None,
+                                        start_time=start_time,
+                                        __event_emitter__=__event_emitter__,
+                                        status="Streaming...",
+                                        persist_usage=False,
+                                    )
 
-                        stream_completed = True
-                        yield "data: [DONE]\n\n"
+                                    streamed_content_buffer = ""
+                                    last_update_time = current_time
+
+                            stream_completed = True
+                            yield "data: [DONE]\n\n"
 
                     except GeneratorExit:
                         if self.valves.DEBUG:
@@ -322,28 +308,18 @@ class Pipe:
                 )
 
             else:
-                # Non-streaming response
+
+                # BATCH REQUEST
+
                 if self.valves.DEBUG:
                     print(f"{self.debug_prefix} sending non-stream request...")
 
-                response = requests.post(
-                    url=url,
-                    headers=headers,
-                    json=payload,
-                    stream=True,
-                )
+                message = await anthropic_client.messages.create(**payload)
 
-                response.raise_for_status()
-
-                if response.status_code != 200:
-                    raise Exception(
-                        f"HTTP Error {response.status_code}: {response.text}"
-                    )
-
-                res = response.json()
+                res = message.to_dict()
 
                 if self.valves.DEBUG:
-                    print(f"{self.debug_prefix} Anthropic response: {res}")
+                    print(f"{self.debug_prefix} Anthropic batch response: {res}")
 
                 generated_text = ""
 
@@ -368,11 +344,6 @@ class Pipe:
                     status="Completed",
                     persist_usage=True,
                 )
-
-                if self.valves.DEBUG:
-                    print(
-                        f"{self.debug_prefix} returning non-stream response: {generated_text}"
-                    )
 
                 return generated_text
 
