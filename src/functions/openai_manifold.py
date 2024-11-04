@@ -168,9 +168,13 @@ class Pipe:
 
                         async for chunk in response:
 
+                            #OpenAI API is not supposed to have that, but some proxy providers encounter this
+                            if len(chunk.choices)==0:
+                                 continue
+
                             content = chunk.choices[0].delta.content or ""
 
-                            # Buffer content for costs calculation (once a second
+                            # Buffer content for costs calculation (once a second)
 
                             streamed_content_buffer += content
 
