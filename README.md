@@ -23,34 +23,32 @@ This repository contains another implementation of manifold functions for OpenAI
 1. **Clone the repo**
 
 2. **Create all functions manually one-by-one into Open WebUI Workspace Functions interface**
-   - Each function ID must match the .py file name
-   - Functions "usage_tracking_util" and "usage_tracking_util_pricing_data" are shared dependencies and MUST be installed and enabled for either of the manifolds to work
 
-3. **Enable all functions and configure Valves (where exist)**
+   - Only need to provide correct IDs.  Function code can keep by default, it will be overwritten during deployment. Required function IDs to create:
+      - anthropic
+      - openai
+      - usage_tracking_util
+      - usage_tracking_util_pricing_data
+      - usage_reporting_bot
+   - These function ID must match the .py file name in this repository
 
-## Development and Scripted Re-Deployment
+3. **(Optional) Activate virtual pyenv**
 
-1. (Optional) Activate virtual pyenv 
-
-2. Install dependencies:
+4. **Install dependencies:**
    ```
    pip install -r requirements.txt
    ```
 
-3. Create `.env` file with the following content:
+5. **Create `.env` file with the following content:**
    ```
    OPENWEBUI_API_URL=http://localhost:3000
    OPENWEBUI_API_KEY=sk-....
    ```
 
-4. Deploy functions to OpenWebUI:
+6. **Deploy functions to OpenWebUI:**
    ```
    python deploy_to_openwebui.py src/functions/*
+   python deploy_to_openwebui.py src/functions/data/usage_tracking_util_pricing_data.py
    ```
 
-5. Deploy Pricing Data function to OpenWebUI:
-   ```
-   python deploy_to_openwebui.py src/functions/data/*
-   ```
-
-6.
+7. **Enable all functions and configure Valves (only for OpenAI and Anthropic)**
