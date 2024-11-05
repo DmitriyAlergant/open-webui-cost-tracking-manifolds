@@ -7,7 +7,8 @@ import glob
 
 from dotenv import load_dotenv
 
-load_dotenv()
+env_path = os.path.join(os.getcwd(), '.env')
+load_dotenv(dotenv_path=env_path, override=True)
 
 API_URL = os.getenv('OPENWEBUI_API_URL', 'http://localhost:3000')
 API_KEY = os.getenv('OPENWEBUI_API_KEY')
@@ -112,6 +113,8 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Usage: python {script_name} <file_pattern> [<file_pattern> ...]")
         sys.exit(1)
+
+    print(f"Deploying to {API_URL}")
 
     file_patterns = sys.argv[1:]
     
