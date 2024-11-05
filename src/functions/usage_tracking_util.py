@@ -7,9 +7,10 @@ required_open_webui_version: 0.3.17
 license: MIT
 """
 
+from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
 
-from typing import Optional
+from typing import List, Optional
 
 
 import time
@@ -22,6 +23,7 @@ from threading import Lock
 from typing import Any, Awaitable, Callable, Optional
 
 import tiktoken
+from anthropic import Anthropic
 
 
 class Config:
@@ -42,7 +44,7 @@ from open_webui.apps.webui.internal.db import get_db, engine
 class UsagePersistenceManager:
     def __init__(self, debug=False):
         self._init_db()
-        self.DEBUG = debug
+        self.debug = debug
 
     def _init_db(self):
         """Initialize database and create table if it doesn't exist"""
@@ -125,7 +127,7 @@ class UsagePersistenceManager:
                 )
                 db.commit()
 
-                if self.DEBUG:
+                if self.debug:
                     print(
                         f"{Config.DEBUG_PREFIX} Persisted usage cost record for user {user_email}, model {model}, task {task}, input tokens {input_tokens}, output_tokens {output_tokens}, total_cost {total_cost}, model_used_by_cost_calculation {model_used_by_cost_calculation}"
                     )
@@ -138,7 +140,7 @@ class UsagePersistenceManager:
 class ModelCostManager:
 
     def __init__(self, debug:bool = False):
-        self.DEBUG = debug
+        self.debug = debug
         self.pricing_data = self._load_pricing_data()
 
     def _load_pricing_data(self):
@@ -183,13 +185,13 @@ class ModelCostManager:
         model = model.lower().strip()
 
         if model in self.pricing_data:
-            if self.DEBUG:
+            if self.debug:
                 print(
                     f"{Config.DEBUG_PREFIX} Using model pricing data for '{model}' (exact match)"
                 )
             return model, self.pricing_data[model]
         else:
-            if self.DEBUG:
+            if self.debug:
                 print(
                     f"{Config.DEBUG_PREFIX} Searching best pricing data match for model named '{model}'"
                 )
@@ -208,13 +210,54 @@ class ModelCostManager:
                 )
                 return "unknown", {}
 
-            if self.DEBUG:
+            if self.debug:
                 print(
                     f"{Config.DEBUG_PREFIX} Using model pricing data for '{best_match}'"
                 )
 
             return best_match, self.pricing_data.get(best_match, {})
 
+
+class TokenCounter(ABC):
+    
+    @abstractmethod
+    def count_tokens(self, messages: List[dict]) -> int:
+        pass
+
+class TiktokenCounter(TokenCounter):
+    
+    def __init__(self, model: str, debug: bool = False):
+        self.debug = debug
+        self.model = model.split(".", 1)[1] if "." in model else model
+        try:
+            self.enc = tiktoken.encoding_for_model(self.model)
+            if self.debug:
+                print(f"{Config.DEBUG_PREFIX} Tiktoken encoding loaded for model {self.model}")
+        except KeyError:
+            if self.debug:
+                print(f"{Config.DEBUG_PREFIX} Using cl100k_base encoding for model {self.model}")
+            self.enc = tiktoken.get_encoding("cl100k_base")
+    
+    def count_tokens(self, content: str) -> int:
+        return len(self.enc.encode(content))
+
+class AnthropicCounter(TokenCounter):
+    
+    def __init__(self, model: str, debug: bool = False):
+        self.client = Anthropic()
+        self.model = model.split(".", 1)[1] if "." in model else model
+        self.debug = debug
+    
+    def count_tokens(self, content: str) -> int:
+        count = self.client.beta.messages.count_tokens(
+            model=self.model,
+            messages={"role": "user", "content": content}
+        )
+
+        if self.debug:
+            print(f"{Config.DEBUG_PREFIX} Anthropic token count: {count.input_tokens}")
+
+        return count.input_tokens
 
 class CostCalculationManager:
 
@@ -224,15 +267,14 @@ class CostCalculationManager:
 
         self.model_cost_manager = model_cost_manager
 
-        self.DEBUG = debug
+        self.debug = debug
+
+        self.token_counter = self.get_token_counter(self.model)
 
         # Establish model pricing data
         (self.model_used_by_cost_calculation, self.model_pricing_data) = (
             model_cost_manager.get_model_data(model)
         )
-
-        # Load tiktoken encoding
-        self.enc = self.get_encoding(model)
 
     def calculate_costs(self, input_tokens: int, output_tokens: int) -> Decimal:
 
@@ -266,30 +308,21 @@ class CostCalculationManager:
             self.model_used_by_cost_calculation,
         )
 
-    def get_encoding(self, model):
+    def get_token_counter(self, model: str) -> TokenCounter:
+        
+        provider = model.split(".", 1)[0] if "." in model else "unknown"
 
-        if "." in model:
-            model = model.split(".", 1)[1]
-
-        try:
-            enc = tiktoken.encoding_for_model(model)
-
-            if self.DEBUG:
-                print(
-                    f"{Config.DEBUG_PREFIX} Tiktoken encoding found for model {model}, loaded"
-                )
-
-            return enc
-        except KeyError:
-            if self.DEBUG:
-                print(
-                    f"{Config.DEBUG_PREFIX} Encoding for model {model} not found. Using cl100k_base for computing tokens."
-                )
-            return tiktoken.get_encoding("cl100k_base")
-
-    def count_tokens(self, message_content: str) -> int:
-        output_tokens = len(self.enc.encode(message_content))
-        return output_tokens
+        if provider == "anthropic":
+            if self.debug:
+                print(f"{Config.DEBUG_PREFIX} Using AnthropicCounter for provider {provider}")
+            return AnthropicCounter(model, self.debug)
+        else:
+            if self.debug:
+                print(f"{Config.DEBUG_PREFIX} Using TiktokenCounter for provider {provider}")
+            return TiktokenCounter(model, self.debug)
+    
+    def count_tokens(self, content: str) -> int:
+        return self.token_counter.count_tokens(content)
 
 
 class CostTrackingManager:
@@ -299,7 +332,7 @@ class CostTrackingManager:
         self.__user__ = __user__
         self.task = task
 
-        self.DEBUG = debug
+        self.debug = debug
 
         self.model_cost_manager = ModelCostManager (debug=debug)
 
@@ -322,7 +355,7 @@ class CostTrackingManager:
         processing_time = current_time - start_time
 
         if __event_emitter__ is None:
-            if self.DEBUG:
+            if self.debug:
                 print(
                     f"{Config.DEBUG_PREFIX} __event_emitter__ is None. Not sending status update event"
                 )
@@ -366,7 +399,7 @@ class CostTrackingManager:
             }
         )
 
-        if self.DEBUG:
+        if self.debug:
             print(f"{Config.DEBUG_PREFIX} status string update: {status_message}")
 
     def count_tokens(self, message_content: str) -> int:
