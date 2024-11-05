@@ -13,6 +13,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 
+import sys
+
 from open_webui.utils.misc import get_last_user_message
 
 import pandas as pd
@@ -57,7 +59,7 @@ class Pipe:
             print(f"usage-reporting-bot ({__user__['email']}): {command}")
 
         if command == "/help":
-            return self.print_help()
+            return self.print_help(__user__)
 
         else:
             return self.handle_command(__user__, command)
@@ -88,14 +90,22 @@ class Pipe:
 
             return self.generate_single_user_report(days, __user__["email"])
 
+        if command.startswith("/run_sql "):
+            if __user__["role"] == "admin":
+                return self.run_sql_command(command[len("/run_sql "):])  # Remove "/usage_sql " prefix
+            else:
+                return "Sorry, this feature is only available to Admins"
+
         return "Invalid command format. Use '/help' for list of available commands."
 
-    def print_help(self):
+    def print_help(self, __user__):
         return (
             "**Available Commands**\n"
-            "* **/usage_stats 30d** - my own usage stats for 30 days\n"
-            "* **/usage_stats all 45d** - stats by all users for 45 days\n"
-            "* **/usage_stats user@email.com** - stats for the indicated user (default is 30 days)\n"
+            "* **/usage_stats 30d** my own usage stats for 30 days\n\n"
+            "**Available Commands (Admins Only)**\n"
+            "* **/usage_stats all 45d** stats by all users for 45 days\n"
+            "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
+            "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database. To see all available tables use PRAGMA table_list; To list table columns use PRAGMA table_info(t);\n"
         )
 
     def get_usage_stats(
@@ -325,3 +335,65 @@ class Pipe:
                 report += f"- **{model}**: {original_cost:.2f} {original_currency}\n"
 
         return report
+    
+    def run_sql_command(self, sql_query):
+        # Sanitize the query
+        sql_query = sql_query.strip()
+        print(f"usage_reporting_bot SQL QUERY: {sql_query}")
+
+        if not re.match(r'^(SELECT|PRAGMA TABLE_)', sql_query, re.IGNORECASE):
+            err_msg = "Error: Query must start with SELECT or PRAGMA TABLE_LIST() or PRAGMA TABLE_INFO(table)"
+            print(f"usage_reporting_bot run_sql | {err_msg}")
+            return f"{err_msg}"
+        
+        if not sql_query.endswith(';'):
+            sql_query += ';'
+
+        if sql_query.count(';') > 1:
+
+            err_msg = "Error: Query must not contain multiple semicolons (;)"
+            print(f"usage_reporting_bot run_sql |  {err_msg}")
+            return f"{err_msg}"
+
+        try:
+            with get_db() as db:
+                result = db.execute(text(sql_query))
+                rows = result.fetchall()
+
+                if not rows:
+                    msg =  "Query executed successfully, but returned no results."
+                    print(f"usage_reporting_bot run_sql |  {msg}")
+                    return f"{msg}"
+
+                # Get column names
+                if hasattr(result, 'keys'):
+                    headers = result.keys()
+                else:
+                    headers = rows[0]._fields
+
+                # Format data
+                formatted_data = []
+                for row in rows:
+                    formatted_row = [str(getattr(row, col, '')) for col in headers]
+                    formatted_data.append(formatted_row)
+
+                # Calculate column widths
+                col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *formatted_data)]
+
+                # Create a markdown table
+                table = "```\n"  # Start code block for fixed-width formatting
+                table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
+                table += "-|-".join("-" * width for width in col_widths) + "\n"
+                for row in formatted_data:
+                    table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
+                table += "```\n"  # End code block
+
+                print(f"usage_reporting_bot run_sql |  returned query results {len(rows)} rows")
+
+                return f"Query results:\n\n{table}"
+
+        except Exception as e:
+            _, _, tb = sys.exc_info()
+            line_number = tb.tb_lineno
+            print(f"usage_reporting_bot run_sql | Error on line {line_number}: {e}")
+            raise e
