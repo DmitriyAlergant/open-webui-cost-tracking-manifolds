@@ -128,14 +128,12 @@ class Pipe:
                     generated_tokens = 0
                     last_update_time = 0
                     stream_completed = False
+                    full_response = ""
 
                     try:
                         async with aiohttp.ClientSession() as session:
                             async with session.post(
-                                url,
-                                headers=headers,
-                                json=payload,
-                                proxy=self.valves.PROXY_URL,
+                                url, headers=headers, json=payload, proxy=self.valves.PROXY_URL
                             ) as response:
                                 if response.status != 200:
                                     error_text = await response.text()
@@ -147,32 +145,28 @@ class Pipe:
                                     if line:
                                         try:
                                             data = json.loads(line)
-                                            chunk = data["result"]["alternatives"][0][
-                                                "message"
-                                            ]["text"]
+                                            chunk = data["result"]["alternatives"][0]["message"]["text"]
 
-                                            # Buffer content for costs calculation
-                                            streamed_content_buffer += chunk
+                                            # Only yield the new content
+                                            new_content = chunk[len(full_response):]
+                                            full_response = chunk
 
-                                            # Return the chunk to the client
-                                            # Emulate SSE stream (as in OpenAI code)
-                                            content_json = {
-                                                "choices": [
-                                                    {
-                                                        "delta": {"content": chunk},
-                                                        "index": 0,
-                                                    }
-                                                ]
-                                            }
-                                            yield f"data: {json.dumps(content_json)}\n\n"
+                                            if new_content:
+                                                # Buffer content for costs calculation
+                                                streamed_content_buffer += new_content
+
+                                                # Return the chunk to the client
+                                                # Emulate SSE stream (as in OpenAI code)
+                                                content_json = {
+                                                    "choices": [{"delta": {"content": new_content}, "index": 0}]
+                                                }
+                                                yield f"data: {json.dumps(content_json)}\n\n"
 
                                             # Update status every ~1 second
                                             current_time = time.time()
                                             if current_time - last_update_time >= 1:
-                                                generated_tokens += (
-                                                    cost_tracking_manager.count_tokens(
-                                                        streamed_content_buffer
-                                                    )
+                                                generated_tokens += cost_tracking_manager.count_tokens(
+                                                    streamed_content_buffer
                                                 )
 
                                                 cost_tracking_manager.calculate_costs_update_status_and_persist(
@@ -224,6 +218,7 @@ class Pipe:
                             print(
                                 f"{self.debug_prefix} Finalized stream (completed: {stream_completed})"
                             )
+
 
                 return StreamingResponse(
                     stream_generator(), media_type="text/event-stream"
