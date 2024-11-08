@@ -234,6 +234,9 @@ class Pipe:
 
         df = pd.DataFrame(stats)
 
+        # Default currency to 'USD' if blank or null
+        df['currency'] = df['currency'].fillna('USD').replace('', 'USD')
+
         # Total usage costs by currency
         currency_totals = df.groupby("currency")["total_cost"].sum().round(2)
 
@@ -243,38 +246,59 @@ class Pipe:
         report += "#### Total Usage Costs:\n"
 
         for currency, total in currency_totals.items():
-            if currency in ["RUB", "RUR"]:
+            if currency == "USD" or currency is None or currency == "":
+                report += f"- $ **{total:.2f}**\n"
+            elif currency in ["RUB", "RUR"]:
                 report += f"- **{total:.2f} ₽**\n"
-            elif currency == "USD":
-                report += f"- **{total:.2f} $**\n"
             else:
                 report += f"- **{total:.2f} {currency}**\n"
 
         # Top 20 users
-        df["cost_rub"] = df.apply(
+
+        # Calculate USD equivalent (across currencies) for ranking only
+        df["cost_for_ranking"] = df.apply(
             lambda row: (
-                row["total_cost"]
-                if row["currency"] == "RUB"
-                else row["total_cost"] * 100
+                row["total_cost"] / 100 if row["currency"] in ("RUB", "RUR")
+                else row["total_cost"]
             ),
             axis=1,
         )
-        user_totals = (
-            df.groupby("user_email")
-            .agg(
-                {
-                    "cost_rub": "sum",
-                }
-            )
-            .round(2)
-            .nlargest(20, "cost_rub")
-        )
 
+        df["usd_cost"] = df.apply(lambda row: row["total_cost"] if row["currency"] == "USD" else 0, axis=1)
+        df["rub_cost"] = df.apply(lambda row: row["total_cost"] if row["currency"] in ["RUB", "RUR"] else 0, axis=1)
+
+        # Get user totals and top 20
+        user_totals = df.groupby("user_email").agg({
+            "usd_cost": "sum",
+            "rub_cost": "sum", 
+            "cost_for_ranking": "sum"
+        }).round(2)
+
+        top_users = user_totals.nlargest(20, "cost_for_ranking")
+
+        # Build report header
         report += "\n#### Top 20 Users by Cost:\n"
-        report += "| User | Cost (RUB) |\n"
-        report += "|------|------------|\n"
-        for user, row in user_totals.iterrows():
-            report += f"| {user} | {row['cost_rub']:.2f} ₽ |\n"
+        header = "| User "
+        separator = "|------|"
+
+        if (top_users["usd_cost"] > 0).any():
+            header += "| USD "
+            separator += "---|"
+        if (top_users["rub_cost"] > 0).any():
+            header += "| RUB "
+            separator += "---|"
+
+        report += header + "|\n"
+        report += separator + "\n"
+
+        # Add rows
+        for user, row in top_users.iterrows():
+            line = f"| {user} "
+            if (top_users["usd_cost"] > 0).any():
+                line += f"| $ {row['usd_cost']:.2f} "
+            if (top_users["rub_cost"] > 0).any():
+                line += f"| {row['rub_cost']:.2f} ₽ "
+            report += line + "|\n"
 
         return report
 
