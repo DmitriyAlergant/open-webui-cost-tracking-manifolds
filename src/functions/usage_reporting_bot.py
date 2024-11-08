@@ -99,14 +99,20 @@ class Pipe:
         return "Invalid command format. Use '/help' for list of available commands."
 
     def print_help(self, __user__):
-        return (
+        help_message = (
             "**Available Commands**\n"
             "* **/usage_stats 30d** my own usage stats for 30 days\n\n"
-            "**Available Commands (Admins Only)**\n"
-            "* **/usage_stats all 45d** stats by all users for 45 days\n"
-            "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
-            "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database. To see all available tables use PRAGMA table_list; To list table columns use PRAGMA table_info(t);\n"
         )
+        
+        if __user__["role"] == "admin":
+            help_message += (
+                "**Available Commands (Admins Only)**\n"
+                "* **/usage_stats all 45d** stats by all users for 45 days\n"
+                "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
+                "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database. To see all available tables use PRAGMA table_list; To list table columns use PRAGMA table_info(t);\n"
+            )
+        
+        return help_message
 
     def get_usage_stats(
         self,
