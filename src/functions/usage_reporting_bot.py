@@ -13,6 +13,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 
+import requests
+
 import sys
 
 from open_webui.utils.misc import get_last_user_message
@@ -214,6 +216,28 @@ class Pipe:
         :return: A formatted string report of usage stats
         """
 
+    def get_exchange_rates (self, currencies):
+        exchange_rates = {}
+        try:
+            response = requests.get("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json")
+            if response.status_code == 200:
+                data = response.json()
+                usd_rates = data.get('usd', {})
+                for currency in currencies:
+                    if currency == 'USD':
+                        exchange_rates[currency] = 1.0
+                    else:
+                        rate = usd_rates.get(currency.lower(), None)
+                        exchange_rates[currency] = rate if rate else 1.0
+
+        except Exception as e:
+            print (f"Usage Reporting Bot: unable to fetch currency exchange rates, exception: {e}")
+
+            # Default to 1.0 if unable to fetch or process exchange rates
+            exchange_rates = {currency: 1.0 for currency in currencies}
+
+        return exchange_rates
+
     def generate_all_users_report(self, days: int):
         """
         Generate a usage report for all users.
@@ -237,73 +261,97 @@ class Pipe:
         # Default currency to 'USD' if blank or null
         df['currency'] = df['currency'].fillna('USD').replace('', 'USD')
 
+        # Get unique currencies in data
+        currencies = df['currency'].unique()
+
+        if len(currencies) > 1 or 'USD' not in currencies:
+            exchange_rates = self.get_exchange_rates(currencies)
+        else:
+            exchange_rates = {'USD': 1.0}
+
         # Total usage costs by currency
         currency_totals = df.groupby("currency")["total_cost"].sum().round(2)
+
+        # Convert all totals to USD for sorting
+        usd_equivalent_totals = {
+            currency: total / exchange_rates.get(currency, 1.0)
+            for currency, total in currency_totals.items()
+        }
+
+        # Sort currencies by their USD equivalent value
+        sorted_currencies = sorted(
+            usd_equivalent_totals.keys(),
+            key=lambda x: usd_equivalent_totals[x],
+            reverse=True
+        )
 
         # Prepare the report
         report = f"## Usage Report for All Users\n"
         report += f"### Period: {start_date.date()} to {end_date.date()}\n\n"
         report += "#### Total Usage Costs:\n"
 
-        for currency, total in currency_totals.items():
-            if currency == "USD" or currency is None or currency == "":
+        for currency in sorted_currencies:
+            total = currency_totals[currency]
+            if currency == "USD":
                 report += f"- $ **{total:.2f}**\n"
-            elif currency in ["RUB", "RUR"]:
-                report += f"- **{total:.2f} ₽**\n"
             else:
                 report += f"- **{total:.2f} {currency}**\n"
 
         # Top 20 users
 
-        # Calculate USD equivalent (across currencies) for ranking only
-        df["cost_for_ranking"] = df.apply(
-            lambda row: (
-                row["total_cost"] / 100 if row["currency"] in ("RUB", "RUR")
-                else row["total_cost"]
-            ),
-            axis=1,
+        # Convert costs to USD for ranking
+        df['cost_for_ranking'] = df.apply(
+            lambda row: row['total_cost'] / exchange_rates.get(row['currency'], 1.0),
+            axis=1
         )
 
-        df["usd_cost"] = df.apply(lambda row: row["total_cost"] if row["currency"] == "USD" else 0, axis=1)
-        df["rub_cost"] = df.apply(lambda row: row["total_cost"] if row["currency"] in ["RUB", "RUR"] else 0, axis=1)
+        # Separate costs per currency for reporting
+        for currency in currencies:
+            df[f'{currency.lower()}_cost'] = df.apply(
+                lambda row: row['total_cost'] if row['currency'] == currency else 0,
+                axis=1
+            )
 
-        # Get user totals and top 20
-        user_totals = df.groupby("user_email").agg({
-            "usd_cost": "sum",
-            "rub_cost": "sum", 
-            "cost_for_ranking": "sum"
-        }).round(2)
+        # Get user totals and select top 20 users
+
+        agg_dict = {f'{currency.lower()}_cost': 'sum' for currency in currencies}
+        agg_dict['cost_for_ranking'] = 'sum'
+
+        user_totals = df.groupby("user_email").agg(agg_dict).round(2)
 
         top_users = user_totals.nlargest(20, "cost_for_ranking")
 
-        # Build report header
-        report += "\n#### Top 20 Users by Cost:\n"
-        header = "| User "
-        separator = "|------|"
-
-        if (top_users["usd_cost"] > 0).any():
-            header += "| USD "
-            separator += "---|"
-        if (top_users["rub_cost"] > 0).any():
-            header += "| RUB "
-            separator += "---|"
-
-        report += header + "|\n"
-        report += separator + "\n"
-
-        # Add rows
+        # Prepare data for table rendering
+        
+        headers = ["User"] + [currency.upper() for currency in currencies if (top_users[f'{currency.lower()}_cost'] > 0).any()]
+        rows = []
         for user, row in top_users.iterrows():
-            line = f"| {user} "
-            if (top_users["usd_cost"] > 0).any():
-                line += f"| $ {row['usd_cost']:.2f} "
-            if (top_users["rub_cost"] > 0).any():
-                line += f"| {row['rub_cost']:.2f} ₽ "
-            report += line + "|\n"
+            row_data = [user]
+            for currency in currencies:
+                if (top_users[f'{currency.lower()}_cost'] > 0).any():
+                    cost = row[f'{currency.lower()}_cost']
+                    if currency == 'USD':
+                        row_data.append(f"${cost:.2f}")
+                    else:
+                        row_data.append(f"{cost:.2f} {currency}")
+            rows.append(row_data)
+
+        # Render an ASCII table
+        col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *rows)]
+
+        table = "```\n"  # Start code block for fixed-width formatting
+        table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
+        table += "-|-".join("-" * width for width in col_widths) + "\n"
+        for row in rows:
+            table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
+        table += "```\n"  # End code block
+
+        report += "\n#### Top 20 Users by Cost:\n"
+        report += table
 
         return report
 
     def generate_single_user_report(self, days: int, user_email: str):
-
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
 
@@ -318,6 +366,18 @@ class Pipe:
         # Convert to DataFrame for easy manipulation
         df = pd.DataFrame(stats)
 
+        # Default currency to 'USD' if blank or null
+        df['currency'] = df['currency'].fillna('USD').replace('', 'USD')
+
+        # Get unique currencies in data and fetch exchange rates
+
+        currencies = df['currency'].unique()
+
+        if len(currencies) > 1 or 'USD' not in currencies:
+            exchange_rates = self.get_exchange_rates(currencies)
+        else:
+            exchange_rates = {'USD': 1.0}
+
         # Group by currency and sum the total cost
         currency_totals = df.groupby("currency")["total_cost"].sum().round(2)
 
@@ -327,10 +387,8 @@ class Pipe:
         report += "#### Total Usage Costs:\n"
 
         for currency, total in currency_totals.items():
-            if currency in ["RUB", "RUR"]:
-                report += f"- **{total:.2f} ₽**\n"
-            elif currency == "USD":
-                report += f"- **{total:.2f} $**\n"
+            if currency == "USD":
+                report += f"- $ **{total:.2f}**\n"
             else:
                 report += f"- **{total:.2f} {currency}**\n"
 
@@ -341,28 +399,48 @@ class Pipe:
         report += f"- Input tokens:  **{total_input_tokens:,}**\n"
         report += f"- Output tokens: **{total_output_tokens:,}**\n"
 
-        # Convert costs to USD for ranking
-        df["cost_usd"] = df.apply(
-            lambda row: (
-                row["total_cost"]
-                if row["currency"] == "USD"
-                else row["total_cost"] / 100
-            ),
-            axis=1,
+
+        # TOP 5 MODELS BY COST
+        report += "\n#### Top 5 Models by Cost:\n"
+
+        # Group data and select top 5 models by USD cost (currency-converted)
+
+        model_costs = df.groupby(['model', 'currency'])['total_cost'].sum().reset_index()
+
+        model_costs['cost_usd'] = model_costs.apply(
+            lambda row: row['total_cost'] / exchange_rates.get(row['currency'], 1.0),
+            axis=1
         )
 
-        # Add top 5 models by usage
-        top_models = df.groupby("model")["cost_usd"].sum().nlargest(5).round(2)
-        report += "\n#### Top 5 Models by Cost:\n"
-        for model, cost in top_models.items():
-            original_currency = df[df["model"] == model]["currency"].iloc[0]
-            original_cost = df[df["model"] == model]["total_cost"].sum().round(2)
-            if original_currency in ["RUB", "RUR"]:
-                report += f"- **{model}**: {original_cost:.2f} ₽\n"
-            elif original_currency == "USD":
-                report += f"- **{model}**: {original_cost:.2f} $\n"
-            else:
-                report += f"- **{model}**: {original_cost:.2f} {original_currency}\n"
+        top_models = model_costs.groupby('model')['cost_usd'].sum().nlargest(5).index
+
+        top_model_data = model_costs[model_costs['model'].isin(top_models)]
+
+        # Prepare data for table rendering
+
+        headers = ["Model"] + list(currencies)
+        rows = []
+        for model in top_models:
+            row_data = [model]
+            for currency in currencies:
+                cost = top_model_data[(top_model_data['model'] == model) & (top_model_data['currency'] == currency)]['total_cost'].sum()
+                if currency == 'USD':
+                    row_data.append(f"${cost:.2f}" if cost > 0 else "")
+                else:
+                    row_data.append(f"{cost:.2f} {currency}" if cost > 0 else "")
+            rows.append(row_data)
+
+        # Render an ASCII table
+        col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *rows)]
+
+        table = "```\n"  # Start code block for fixed-width formatting
+        table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
+        table += "-|-".join("-" * width for width in col_widths) + "\n"
+        for row in rows:
+            table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
+        table += "```\n"  # End code block
+
+        report += table
 
         return report
     
