@@ -86,6 +86,18 @@ pricing_data = {
         "token_units": 1000,
         "cost_currency": "USD",
     },
+    "databricks.databricks-meta-llama-3-1-70b-instruct": {
+        "input_cost_per_token": 1.00,
+        "output_cost_per_token": 3.00,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },
+    "databricks.databricks-meta-llama-3-1-405b-instruct": {
+        "input_cost_per_token": 5.00,
+        "output_cost_per_token": 15.00,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },
     "yandexgpt.yandexgpt": {
         "input_cost_per_token": 0.00120,
         "output_cost_per_token": 0.00120,
