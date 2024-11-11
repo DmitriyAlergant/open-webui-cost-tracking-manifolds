@@ -9,20 +9,14 @@ license: MIT
 
 from pydantic import BaseModel, Field
 
-from typing import Union, List
-
-from open_webui.utils.misc import get_messages_content
-
-from typing import Any, Awaitable, Callable
-
-import sys
-import asyncio
-import time
-import json
-
 from fastapi.responses import StreamingResponse
 
-from openai import OpenAI, AsyncOpenAI
+from typing import Union, Any, Awaitable, Callable
+
+import sys
+
+
+MODULE_OPENAI_COMPATIBLE_PIPE = "function_module_openai_compatible_pipe"
 
 
 class Pipe:
@@ -49,55 +43,30 @@ class Pipe:
 
         self.valves = self.Valves()
 
-        self.debug_prefix = "DEBUG:    " + __name__ + " -"
+        self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
-    def init_openai_client(self, async_client=False):
+    def get_openai_pipe(self):
 
-        if not self.valves.OPENAI_API_KEY:
-            raise Exception(
-                f"OpenAI Manifold function: OPENAI_API_KEY valve not provided"
-            )
+        module_name = MODULE_OPENAI_COMPATIBLE_PIPE
 
-        if async_client:
-            return AsyncOpenAI(
-                api_key=self.valves.OPENAI_API_KEY,
-                base_url=self.valves.OPENAI_API_BASE_URL,
-            )
+        if module_name not in sys.modules:
+            raise Exception(f"Module {module_name} is not loaded")
+        
+        module = sys.modules[module_name]
 
-        else:
-            return OpenAI(
-                api_key=self.valves.OPENAI_API_KEY,
-                base_url=self.valves.OPENAI_API_BASE_URL,
-            )
+        return module.OpenAIPipe (
+                debug=self.valves.DEBUG,
+                debug_logging_prefix=self.debug_logging_prefix, 
+                api_base_url=self.valves.OPENAI_API_BASE_URL,
+                api_key=self.valves.OPENAI_API_KEY)
 
     def pipes(self):
-        openai_client = self.init_openai_client(async_client=False)
 
-        try:
-            models = []
+        models = self.get_openai_pipe().get_models()
 
-            for model in openai_client.models.list():
-                models.append(model)
+        enabled_models = [model for model in models if model['id'] in self.valves.ENABLED_MODELS.split(',')]
 
-            return [
-                {
-                    "id": model.id,
-                    "name": model.id,
-                }
-                for model in models
-                if model.id in self.valves.ENABLED_MODELS.split(',')
-            ]
-
-        except Exception as e:
-            _, _, tb = sys.exc_info()
-            print(f"Error on line {tb.tb_lineno}: {e}")
-
-            return [
-                {
-                    "id": "error",
-                    "name": f"Could not fetch models from OpenAI: {e}",
-                },
-            ]
+        return enabled_models
 
     async def pipe(
         self,
@@ -106,184 +75,15 @@ class Pipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
+        
+        if "o1" in body["model"] and body["messages"][0]["role"] == 'system':
 
-        # Initialize CostTrackingManager from "usage_tracking_util" function
+            print (f"OpenAI Manifold: o1 models do not currently support System message. Converting System Prompt to User role.")
 
-        cost_tracker_module_name = "function_usage_tracking_util"
-        if cost_tracker_module_name not in sys.modules:
-            raise Exception(f"Module {cost_tracker_module_name} is not loaded")
-        cost_tracker_module = sys.modules[cost_tracker_module_name]
-
-        cost_tracking_manager = cost_tracker_module.CostTrackingManager(
-            body["model"], __user__, __task__, debug=self.valves.DEBUG
-        )
-
-        model_id = body["model"][body["model"].find(".") + 1 :]
-
-        payload = {**body, "model": model_id}
-
-        # Calculate Input Tokens (Estimated)
-        input_content = get_messages_content(body["messages"])
-        input_tokens = cost_tracking_manager.count_tokens(input_content) + len(
-            body["messages"]
-        )
-
-        if self.valves.DEBUG:
-            print(f"{self.debug_prefix} OpenAI Request Payload: {payload}")
-
-        try:
-            start_time = time.time()
-
-            cost_tracking_manager.calculate_costs_update_status_and_persist(
-                input_tokens=input_tokens,
-                generated_tokens=None,
-                reasoning_tokens=None,
-                start_time=start_time,
-                __event_emitter__=__event_emitter__,
-                status="Requested...",
-                persist_usage=False,
-            )
-
-            # Init OpenAI API Client (Async)
-
-            openai_client = self.init_openai_client(async_client=True)
-
-            if body.get("stream", False):
-                # STREAMING REQUEST
-
-                if self.valves.DEBUG:
-                    print(f"{self.debug_prefix} returning streaming response")
-
-                async def stream_generator():
-                    streamed_content_buffer = ""
-                    generated_tokens = 0
-                    last_update_time = 0
-                    stream_completed = False
-
-                    try:
-
-                        response = await openai_client.chat.completions.create(
-                            **payload
-                        )
-
-                        async for chunk in response:
-
-                            #OpenAI API is not supposed to have that, but some proxy providers encounter this
-                            if len(chunk.choices)==0:
-                                 continue
-
-                            content = chunk.choices[0].delta.content or ""
-
-                            # Buffer content for costs calculation (once a second)
-
-                            streamed_content_buffer += content
-
-                            # Return emulating an SSE stream
-
-                            content_json = {
-                                "choices": [{"index": 0, "delta": {"content": content}}]
-                            }
-                            yield f"data: {json.dumps(content_json)}\n\n"
-
-                            # Update status every ~1 second
-
-                            current_time = time.time()
-                            if current_time - last_update_time >= 1:
-
-                                generated_tokens += cost_tracking_manager.count_tokens(
-                                    streamed_content_buffer
-                                )
-
-                                cost_tracking_manager.calculate_costs_update_status_and_persist(
-                                    input_tokens=input_tokens,
-                                    generated_tokens=generated_tokens,
-                                    reasoning_tokens=None,
-                                    start_time=start_time,
-                                    __event_emitter__=__event_emitter__,
-                                    status="Streaming...",
-                                    persist_usage=False,
-                                )
-
-                                streamed_content_buffer = ""
-
-                                last_update_time = current_time
-
-                        stream_completed = True
-                        yield "data: [DONE]\n\n"
-
-                    except asyncio.CancelledError:
-                        if self.valves.DEBUG:
-                            print(
-                                "DEBUG OpenAI stream_response wrapper... aborted by client"
-                            )
-                    except Exception as e:
-                        _, _, tb = sys.exc_info()
-                        line_number = tb.tb_lineno
-                        print(f"Error on line {line_number}: {e}")
-                        raise e
-
-                    finally:
-                        generated_tokens += cost_tracking_manager.count_tokens(
-                            streamed_content_buffer
-                        )
-
-                        cost_tracking_manager.calculate_costs_update_status_and_persist(
-                            input_tokens=input_tokens,
-                            generated_tokens=generated_tokens,
-                            reasoning_tokens=None,
-                            start_time=start_time,
-                            __event_emitter__=__event_emitter__,
-                            status="Completed" if stream_completed else "Stopped",
-                            persist_usage=True,
-                        )
-
-                        if self.valves.DEBUG:
-                            print(
-                                f"DEBUG Finalized stream (completed: {stream_completed})"
-                            )
-
-                return StreamingResponse(
-                    stream_generator(), media_type="text/event-stream"
-                )
-
-            else:
-                # BATCH REQUEST
-
-                response = await openai_client.chat.completions.create(**payload)
-
-                response_json = response.to_dict()
-
-                if self.valves.DEBUG:
-                    print(
-                        f"{self.debug_prefix} returning batch response: {response_json}"
-                    )
-
-                input_tokens = response_json.get("usage", {}).get(
-                    "prompt_tokens", input_tokens
-                )
-                generated_tokens = response_json.get("usage", {}).get(
-                    "completion_tokens", 0
-                )
-                reasoning_tokens = (
-                    response_json.get("usage", {})
-                    .get("completion_tokens_details", {})
-                    .get("reasoning_tokens", 0)
-                )
-
-                cost_tracking_manager.calculate_costs_update_status_and_persist(
-                    input_tokens=input_tokens,
-                    generated_tokens=generated_tokens,
-                    reasoning_tokens=reasoning_tokens,
-                    start_time=start_time,
-                    __event_emitter__=__event_emitter__,
-                    status="Completed",
-                    persist_usage=True,
-                )
-
-                return response_json
-
-        except Exception as e:
-            _, _, tb = sys.exc_info()
-            line_number = tb.tb_lineno
-            print(f"Error on line {line_number}: {e}")
-            raise e
+            body["messages"][0]["role"] = 'user'
+        
+        return await self.get_openai_pipe().chat_completion(
+            body=body,
+            __user__=__user__,
+            __event_emitter__=__event_emitter__,
+            __task__=__task__)

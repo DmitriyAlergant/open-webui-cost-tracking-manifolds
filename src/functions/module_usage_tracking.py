@@ -24,6 +24,8 @@ from typing import Any, Awaitable, Callable, Optional
 import tiktoken
 
 
+MODULE_PRICING_DATA = "function_module_usage_tracking_pricing_data"
+
 class Config:
     DATA_DIR = "data"
     USER_COST_FILE = DATA_DIR
@@ -142,7 +144,7 @@ class ModelCostManager:
         self.pricing_data = self._load_pricing_data()
 
     def _load_pricing_data(self):
-        pricing_data_module_name = "function_usage_tracking_util_pricing_data"
+        pricing_data_module_name = MODULE_PRICING_DATA
         if pricing_data_module_name not in sys.modules:
             raise Exception(f"Module {pricing_data_module_name} is not loaded")
         pricing_data_module = sys.modules[pricing_data_module_name]

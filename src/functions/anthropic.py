@@ -26,6 +26,8 @@ from fastapi.responses import StreamingResponse
 
 from anthropic import Anthropic, AsyncAnthropic
 
+MODULE_USAGE_TRACKING = "function_module_usage_tracking"
+
 
 class Pipe:
     class Valves(BaseModel):
@@ -105,7 +107,7 @@ class Pipe:
 
         # Initialize CostTrackingManager from "usage_tracking_util" function
 
-        cost_tracker_module_name = "function_usage_tracking_util"
+        cost_tracker_module_name = MODULE_USAGE_TRACKING
         if cost_tracker_module_name not in sys.modules:
             raise Exception(f"Module {cost_tracker_module_name} is not loaded")
         cost_tracker_module = sys.modules[cost_tracker_module_name]
