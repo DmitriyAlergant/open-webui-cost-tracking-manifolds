@@ -57,6 +57,7 @@ class UsagePersistenceManager:
         create_table_sql = """
             CREATE TABLE IF NOT EXISTS usage_costs (
                 id INTEGER PRIMARY KEY {auto_increment},
+                user_id TEXT,
                 user_email TEXT,
                 model TEXT,
                 task TEXT,
@@ -74,16 +75,21 @@ class UsagePersistenceManager:
             )
         )
 
-        create_index_sql = """
-            CREATE INDEX IF NOT EXISTS idx_user_email 
-            ON usage_costs(user_email)
+        create_index1_sql = """
+            CREATE INDEX IF NOT EXISTS idx_user_email ON usage_costs(user_email);
         """
+
+        create_index2_sql = """
+            CREATE INDEX IF NOT EXISTS idx_user_id ON usage_costs(user_id);
+        """
+
 
         try:
             with get_db() as db:
                 # db.execute(text(drop_table_sql))
                 db.execute(text(create_table_sql))
-                db.execute(text(create_index_sql))
+                db.execute(text(create_index1_sql))
+                db.execute(text(create_index2_sql))
                 db.commit()
         except Exception as e:
             print(f"{Config.INFO_PREFIX} Database error in _init_db: {e}")
@@ -91,6 +97,7 @@ class UsagePersistenceManager:
 
     async def log_usage_fact(
         self,
+        user_id: str,
         user_email: str,
         model: str,
         task: str,
@@ -105,8 +112,8 @@ class UsagePersistenceManager:
 
         insert_sql = """
             INSERT INTO usage_costs (
-                       user_email,  model,  task,  timestamp,  input_tokens,  output_tokens,  total_cost,  cost_currency,  model_used_by_cost_calculation
-            ) VALUES (:user_email, :model, :task, :timestamp, :input_tokens, :output_tokens, :total_cost, :cost_currency, :model_used_by_cost_calculation)
+                       user_id, user_email,  model,  task,  timestamp,  input_tokens,  output_tokens,  total_cost,  cost_currency,  model_used_by_cost_calculation
+            ) VALUES (:user_id, :user_email, :model, :task, :timestamp, :input_tokens, :output_tokens, :total_cost, :cost_currency, :model_used_by_cost_calculation)
         """
 
         with get_db() as db:
@@ -114,6 +121,7 @@ class UsagePersistenceManager:
                 db.execute(
                     text(insert_sql),
                     {
+                        "user_id": user_id,
                         "user_email": user_email,
                         "model": model,
                         "task": task,
@@ -415,6 +423,7 @@ class CostTrackingManager:
 
             asyncio.create_task(
                 self.usage_persistence_manager.log_usage_fact(
+                    user_id=self.__user__["id"],
                     user_email=self.__user__["email"],
                     model=self.model,
                     task=self.task,
