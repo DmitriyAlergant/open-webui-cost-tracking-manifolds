@@ -98,7 +98,7 @@ class Pipe:
             else:
                 return "Sorry, this feature is only available to Admins"
 
-        return "Invalid command format. Use '/help' for list of available commands."
+        return "Invalid command\n\n" + self.print_help(__user__)
 
     def print_help(self, __user__):
         help_message = (
