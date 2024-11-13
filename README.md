@@ -20,35 +20,53 @@ This repository contains another implementation of manifold functions for OpenAI
 
 ## Installation
 
-1. **Clone the repo**
+**1. Clone the repo**
 
-2. **Create all functions manually one-by-one into Open WebUI Workspace Functions interface**
+**2. (Optional) Activate virtual pyenv**
 
-   - Only need to provide correct IDs.  Function code can keep by default, it will be overwritten during deployment. Required function IDs to create:
-      - anthropic
+**3. Create all functions manually one-by-one into Open WebUI Workspace Functions interface**
+
+   Manually create functions in OpenWebUI Workspace UI while providing the correct IDs matching the .py file names in this repository. No need to provide any code, keep it by defailt, it will be overwritten during deployment. Be careful when editing function name as OpenWebUI will try to automatically adjust the ID.
+   You need to enter the ID after entering the function name. The function IDs you may want to create:
+
+      - module_openai_compatible_pipe           (mandatory)
+      - module_usage_tracking                   (mandatory)
+      - module_usage_tracking_util_pricing_data (mandatory)
+      - anthropic 
       - openai
-      - usage_tracking_util
-      - usage_tracking_util_pricing_data
+      - google
+      - databricks
       - usage_reporting_bot
-   - These function ID must match the .py file name in this repository
 
-3. **(Optional) Activate virtual pyenv**
-
-4. **Install dependencies:**
+**4. Install dependencies:**
    ```
    pip install -r requirements.txt
    ```
 
-5. **Create `.env` file with the following content:**
-   ```
-   OPENWEBUI_API_URL=http://localhost:3000
-   OPENWEBUI_API_KEY=sk-....
-   ```
+**5. Create `.env` file with the following content:**
 
-6. **Deploy functions to OpenWebUI:**
+   ```python
+   #Your OpenWebUI URL, e.g. http://localhost:3000
+   OPENWEBUI_API_URL=http:// 
+
+   #Get your API key in OpenWebUI User Settings -> Account -> API Keys
+   OPENWEBUI_API_KEY=sk-....  
    ```
+   
+
+**6. Deploy functions to OpenWebUI:**
+
+   ```bash
    python deploy_to_openwebui.py src/functions/*
    python deploy_to_openwebui.py src/functions/data/usage_tracking_util_pricing_data.py
    ```
 
-7. **Enable all functions and configure Valves (only for OpenAI and Anthropic)**
+**7. Enable all functions and configure Valves**
+   
+   Provide API keys where applicable
+   
+   For OpenAI also provide comma-separated list of enabled models
+
+**8. Expected Result**
+
+![Deployed Functions Screenshot](images/deployed_functions_screenshot.png)
