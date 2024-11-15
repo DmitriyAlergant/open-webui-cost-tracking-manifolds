@@ -81,8 +81,8 @@ pricing_data = {
         "cost_currency": "USD",
     },
     "anthropic.claude-3-5-haiku": {
-        "input_cost_per_token": 0.00025,
-        "output_cost_per_token": 0.00125,
+        "input_cost_per_token": 0.001,
+        "output_cost_per_token": 0.005,
         "token_units": 1000,
         "cost_currency": "USD",
     },
