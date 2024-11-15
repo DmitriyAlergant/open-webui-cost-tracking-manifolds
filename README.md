@@ -2,7 +2,14 @@
 
 ## Overview
 
-This repository contains another implementation of manifold functions for OpenAI and Anthropic, with custom usage costs tracking to the main database (SQLite or Postgre), and bot interface for basic reporting.
+This repository contains another implementation of manifold functions for OpenWebUI integration with major providers (Anthropic, OpenAI, etc), with usage volumetrics and costs tracking.
+
+To track costs for all providers, you need to DISABLE the OpenWebUI built-in OpenAI integration and only rely on these functions.
+
+While OpenWebUI Community has earlier developed a few usage costs tracking Filter functions (example: https://openwebui.com/f/bgeneto/cost_tracker or https://openwebui.com/f/infamystudio/gpt_usage_tracker) they all suffer from common flaws, such as not capturing the usage via APi. OpenWebUI Filter Functions 'outflow' method is only called from the OpenWebUI-specific /chat/completed endpoint, that is only triggered by the Web UI. It is not part of OpenAI-compatible API specs. This method (and therefore any Filter outflow methods) would not be called by any OpenAI-compatible 3rd party tools leveraging OpenWebUI's API.
+
+This implementation fully relies on Pipes (Manifolds) to wrap around the responses streaming and capture usage in a reliable way, so both Web UI and API usage is captured in a similar way. For scalability, usage data is captured to the main database (SQLite or Postgre). For convenient costs retrieval we provide a chatbot interface presenting itself as another model ("Usage Reporting Bot")
+
 
 ## Features
 
