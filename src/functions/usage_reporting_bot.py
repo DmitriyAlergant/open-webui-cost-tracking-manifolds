@@ -37,6 +37,11 @@ class Pipe:
 
         DEBUG: bool = Field(default=False, description="Display debugging messages")
 
+        SUPERUSERS: str = Field(
+            default="",
+            description="Comma-separated list of user emails with elevated admin-like bot capabilities",
+        )
+
     def __init__(self):
         self.type = "pipe"
         self.id = "usage-reporting-bot"
@@ -52,6 +57,20 @@ class Pipe:
         return [
             {"id": "admin.usage-reporting-bot", "name": "usage-reporting-bot"},
         ]
+    
+    def is_superuser (self, __user__: dict):
+        if __user__["role"] == "admin":
+            return True
+        
+        print (self.valves.SUPERUSERS.split(","))
+        
+        if __user__["email"] in [user.strip() for user in self.valves.SUPERUSERS.split(",")]:
+            print ("Is superuser: True")
+            return True
+        
+        print ("Is superuser: False")
+        return False
+        
 
     def pipe(self, body: dict, __user__: dict) -> str:
 
@@ -67,13 +86,11 @@ class Pipe:
             return self.handle_command(__user__, command)
 
     def handle_command(self, __user__, command):
-        if command == "/help":
-            return self.help_command()
 
         if match := re.match(r"/usage_stats\s+all(?:\s+(\d+)d)?", command):
             days = int(match.group(1)) if match.group(1) else 30
 
-            if __user__["role"] == "admin":
+            if self.is_superuser(__user__):
                 return self.generate_all_users_report(days)
             else:
                 return "Sorry, this feature is only available to Admins"
@@ -82,7 +99,7 @@ class Pipe:
             specific_user = match.group(1)
             days = int(match.group(2)) if match.group(2) else 30
 
-            if __user__["role"] == "admin" or specific_user == __user__["email"]:
+            if self.is_superuser(__user__) or specific_user == __user__["email"]:
                 return self.generate_single_user_report(days, specific_user)
             else:
                 return "Sorry, this feature is only available to Admins"
@@ -93,7 +110,7 @@ class Pipe:
             return self.generate_single_user_report(days, __user__["email"])
 
         if command.startswith("/run_sql "):
-            if __user__["role"] == "admin":
+            if self.is_superuser(__user__):
                 return self.run_sql_command(command[len("/run_sql "):])  # Remove "/usage_sql " prefix
             else:
                 return "Sorry, this feature is only available to Admins"
@@ -106,7 +123,7 @@ class Pipe:
             "* **/usage_stats 30d** my own usage stats for 30 days\n\n"
         )
         
-        if __user__["role"] == "admin":
+        if self.is_superuser(__user__):
             help_message += (
                 "**Available Commands (Admins Only)**\n"
                 "* **/usage_stats all 45d** stats by all users for 45 days\n"
