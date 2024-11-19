@@ -25,18 +25,29 @@ This implementation fully relies on Pipes (Manifolds) to wrap around the respons
 - Python 3.11+
 - OpenWebUI v0.3.30+
 
-## Installation
+## Installation (Manual)
 
-**1. Clone the repo**
+- In Open WebUI, manually create functions with IDs matching the .py file names from this repo (src/functions). You may reference the screenshot below. Сopy&paste the code each of the Python script. 
+- All "module_*" functions must to be deployed, and the ID must match the .py file name precisely (ex: module_openai_compatible_pipe). 
+Other pipe functions in this repo are referencing these shared modules by their ID (hardcoded), so all modules must be deployed with an exact ID.
+- Provider-specific functions (openai, anthropic, google, databricks, etc.) are at your discretion - you may only deploy those that you need
+- Double-check function IDs before saving! Any time you typed or changed the function name (when creating it for the first time), OpenWebUI automatically adjusts the ID. Make sure to fix the ID before saving the function. If you saved the function with a wrong ID, or if you are getting "function_module_... not found" error, recreate the module function with the correct ID.
+- Do not forget to also deploy the src/functionsdata/module_usage_tracking_pricing_data.py as one more function with  "module_usage_tracking_pricing_data" ID.
+- "Usage Reporting Bot" function is optional, but it provides convenient access to users and administrators to view their accumulated usage costs so you may want to deploy it. After deploying usage reporting bot, you may want to go to Workspace - Models section and provide description to this bot "model", and also provide custom prompt suggestions like "/help" and "/usage_stats 30d". 
+- Enable all deployed functions, and configure Valves to provide API keys where applicable 
+
+## Installation (Scripted)
+
+**1. Clone the repo locally**
 
 **2. (Optional) Activate virtual pyenv**
 
-**4. Install dependencies:**
+**3. Install dependencies:**
    ```
    pip install -r requirements.txt
    ```
 
-**5. Create `.env` file with connection detials**
+**4. Create `.env` file with connection detials**
 
    ```python
    #Your OpenWebUI URL, e.g. http://localhost:3000
@@ -46,23 +57,38 @@ This implementation fully relies on Pipes (Manifolds) to wrap around the respons
    OPENWEBUI_API_KEY=sk-....  
    ```
    
-**6. Deploy functions to OpenWebUI:**
+**5. Deploy pipe functions and modules to OpenWebUI (except Pricing Data):**
 
    ```bash
    python deploy_to_openwebui.py src/functions/*
    ```
-**6. Separately deploy models pricing data "function" to OpenWebUI:**
+**6. Separately deploy one more function (Pricing Data module):**
 
    ```bash
-   python deploy_to_openwebui.py src/functions/data/*
+   python deploy_to_openwebui.py src/functions/data/module_usage_tracking_pricing_data.py
    ```
 
-**7. Enable all functions and configure Valves**
+**7. In OpenWebUI Enable all functions and configure Valves**
    
    Provide API keys where applicable
    
    For OpenAI also provide comma-separated list of enabled models
 
-**8. Expected Result**
 
-![Deployed Functions Screenshot](images/deployed_functions_screenshot.png)
+## **Expected Result (Screenshots)**
+
+### All Funnctions Deployed
+
+   ![Deployed Functions Screenshot](images/deployed_functions_screenshot.png)
+
+### Interactive Status Bar displays token counts and costs for each request
+
+   ![Usage Stats Status Bar](images/usage_stats_status_bar.png)
+
+### Usage Reporting Bot
+
+   ![Usage Reporting Bot](images/usage_reporting_bot_self.png)
+   Usages stats for yourself (regular users)
+
+   ![Usage Reporting Bot](images/usage_reporting_bot_all_users.png)
+   Usages stats for all users (available to admins only)

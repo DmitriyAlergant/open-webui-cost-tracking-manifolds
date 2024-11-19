@@ -1,6 +1,16 @@
+#These are requirements for the deplpoyment script (deploy_to_openwebui.py). 
+
 certifi==2024.8.30
 charset-normalizer==3.4.0
 idna==3.10
 python-dotenv==1.0.1
 requests==2.32.3
 urllib3==2.2.3
+
+
+# The functions themeselves depend on packages already available inside Open WebUI container, and need to be tested inside OpenWebUI. Local development is not anticipated.
+# With OpenWebUI locally running in Docker (localhost:3000), scripted deployment takes less then a second and can be effectively used for development.
+
+
+
+
