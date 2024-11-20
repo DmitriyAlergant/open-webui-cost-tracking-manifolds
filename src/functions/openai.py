@@ -62,9 +62,26 @@ class Pipe:
 
     def pipes(self):
 
-        models = self.get_openai_pipe().get_models()
+        # models = self.get_openai_pipe().get_models()
 
-        enabled_models = [model for model in models if model['id'] in self.valves.ENABLED_MODELS.split(',')]
+        # Requesting models list from OpenAI works (worked) - see above; But introduced performance delays in the application.
+        
+        # A static hardcoded list is faster
+        
+        models = [
+            {"id": "o1-mini", "name": "o1-mini"},
+            {"id": "o1-preview", "name": "o1-preview"},
+            {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
+            {"id": "gpt-4o", "name": "gpt-4o"},
+            {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest"},
+            {"id": "gpt-4-turbo", "name": "gpt-4-turbo"},
+        ]
+
+        enabled_models = [
+            model
+            for model in models
+            if model["id"] in self.valves.ENABLED_MODELS.split(",")
+        ]
 
         return enabled_models
 
