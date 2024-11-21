@@ -72,6 +72,7 @@ class OpenAIPipe:
         self,
         body: dict,
         __user__: dict,
+        __metadata__: dict,
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
@@ -85,7 +86,11 @@ class OpenAIPipe:
         cost_tracker_module = sys.modules[cost_tracker_module_name]
 
         cost_tracking_manager = cost_tracker_module.CostTrackingManager(
-            body["model"], __user__, __task__, debug=self.debug
+            model=body["model"], 
+            __user__=__user__, 
+            __metadata__=__metadata__, 
+            task=__task__, 
+            debug=self.debug
         )
 
         model_id = body["model"][body["model"].find(".") + 1 :]

@@ -73,6 +73,7 @@ class Pipe:
         self,
         body: dict,
         __user__: dict,
+        __metadata__: dict,
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
@@ -80,5 +81,6 @@ class Pipe:
         return await self.get_openai_pipe().chat_completion(
             body=body,
             __user__=__user__,
+            __metadata__ = __metadata__,
             __event_emitter__=__event_emitter__,
             __task__=__task__)

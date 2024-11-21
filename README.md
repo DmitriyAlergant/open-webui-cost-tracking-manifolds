@@ -23,7 +23,7 @@ This implementation fully relies on Pipes (Manifolds) to wrap around the respons
 ## Requirements
 
 - Python 3.11+
-- OpenWebUI v0.3.30+
+- OpenWebUI v0.4.0+
 
 ## Installation (Manual)
 

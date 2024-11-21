@@ -101,6 +101,7 @@ class Pipe:
         self,
         body: dict,
         __user__: dict,
+        __metadata__: dict,
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
@@ -113,7 +114,11 @@ class Pipe:
         cost_tracker_module = sys.modules[cost_tracker_module_name]
 
         cost_tracking_manager = cost_tracker_module.CostTrackingManager(
-            body["model"], __user__, __task__, debug=self.valves.DEBUG
+            model=body["model"], 
+            __user__=__user__, 
+            __metadata__=__metadata__, 
+            task=__task__, 
+            debug=self.valves.DEBUG
         )
 
         # Remove the "anthropic." prefix from the model name

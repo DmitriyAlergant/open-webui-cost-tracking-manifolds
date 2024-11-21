@@ -67,14 +67,17 @@ class Pipe:
         # Requesting models list from OpenAI works (worked) - see above; But introduced performance delays in the application.
         
         # A static hardcoded list is faster
-        
+
         models = [
             {"id": "o1-mini", "name": "o1-mini"},
             {"id": "o1-preview", "name": "o1-preview"},
             {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
             {"id": "gpt-4o", "name": "gpt-4o"},
             {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest"},
-            {"id": "gpt-4-turbo", "name": "gpt-4-turbo"},
+            {"id": "gpt-4o-2024-05-13", "name": "gpt-4o-2024-05-13"},
+            {"id": "gpt-4o-2024-08-06", "name": "gpt-4o-2024-08-06"},
+            {"id": "gpt-4o-2024-11-20", "name": "gpt-4o-2024-11-20"},
+            {"id": "gpt-4-turbo", "name": "gpt-4-turbo"}  
         ]
 
         enabled_models = [
@@ -89,6 +92,7 @@ class Pipe:
         self,
         body: dict,
         __user__: dict,
+        __metadata__: dict,
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
@@ -101,6 +105,7 @@ class Pipe:
         
         return await self.get_openai_pipe().chat_completion(
             body=body,
-            __user__=__user__,
+            __user__ = __user__,
+            __metadata__ = __metadata__,
             __event_emitter__=__event_emitter__,
             __task__=__task__)

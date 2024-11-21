@@ -7,6 +7,7 @@ required_open_webui_version: 0.3.17
 license: MIT
 """
 
+import json
 from pydantic import BaseModel, Field
 
 from typing import Optional
@@ -61,6 +62,7 @@ class UsagePersistenceManager:
                 user_email TEXT,
                 model TEXT,
                 task TEXT,
+                metadata TEXT,
                 timestamp TIMESTAMP NOT NULL,
                 input_tokens INTEGER,
                 output_tokens INTEGER,
@@ -101,6 +103,7 @@ class UsagePersistenceManager:
         user_email: str,
         model: str,
         task: str,
+        metadata: str,
         input_tokens: int,
         output_tokens: int,
         total_cost: Decimal,
@@ -112,8 +115,8 @@ class UsagePersistenceManager:
 
         insert_sql = """
             INSERT INTO usage_costs (
-                       user_id, user_email,  model,  task,  timestamp,  input_tokens,  output_tokens,  total_cost,  cost_currency,  model_used_by_cost_calculation
-            ) VALUES (:user_id, :user_email, :model, :task, :timestamp, :input_tokens, :output_tokens, :total_cost, :cost_currency, :model_used_by_cost_calculation)
+                       user_id, user_email,  model,  task,  metadata, timestamp,  input_tokens,  output_tokens,  total_cost,  cost_currency,  model_used_by_cost_calculation
+            ) VALUES (:user_id, :user_email, :model, :task, :metadata, :timestamp, :input_tokens, :output_tokens, :total_cost, :cost_currency, :model_used_by_cost_calculation)
         """
 
         with get_db() as db:
@@ -125,6 +128,7 @@ class UsagePersistenceManager:
                         "user_email": user_email,
                         "model": model,
                         "task": task,
+                        "metadata": metadata,
                         "timestamp": timestamp,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -304,9 +308,10 @@ class CostCalculationManager:
 
 class CostTrackingManager:
 
-    def __init__(self, model: str, __user__: dict, task: str, debug: bool = False):
+    def __init__(self, model: str, __user__: dict, __metadata__: dict, task: str, debug: bool = False):
         self.model = model
         self.__user__ = __user__
+        self.__metadata__ = __metadata__
         self.task = task
 
         self.DEBUG = debug
@@ -425,6 +430,8 @@ class CostTrackingManager:
                 self.usage_persistence_manager.log_usage_fact(
                     user_id=self.__user__["id"],
                     user_email=self.__user__["email"],
+                    metadata = json.dumps({"chat_id": self.__metadata__.get("chat_id", None)}), 
+                        #full __metadata__ object is too verbose
                     model=self.model,
                     task=self.task,
                     input_tokens=input_tokens,

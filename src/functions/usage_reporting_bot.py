@@ -128,7 +128,7 @@ class Pipe:
                 "**Available Commands (Admins Only)**\n"
                 "* **/usage_stats all 45d** stats by all users for 45 days\n"
                 "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
-                "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database. To see all available tables use PRAGMA table_list; To list table columns use PRAGMA table_info(t);\n"
+                "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database.\n- For SQLite: use /run_sql PRAGMA table_info(usage_costs) to see available table columns\n- For Postgres db: /run_sql SELECT * FROM information_schema.columns WHERE table_name = 'usage_costs'"
             )
         
         return help_message
