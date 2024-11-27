@@ -1,5 +1,5 @@
 """
-title: Google Gemini (OpenAI API) Manifold Pipe with Cost Tracking
+title: Google Gemini Manifold
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0

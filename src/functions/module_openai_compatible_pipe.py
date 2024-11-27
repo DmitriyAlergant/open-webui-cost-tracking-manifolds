@@ -1,5 +1,5 @@
 """
-title: OpenAI Manifold Pipe with Cost Tracking
+title: OpenAI-Compatible Pipe (Generic) with Cost Tracking
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0

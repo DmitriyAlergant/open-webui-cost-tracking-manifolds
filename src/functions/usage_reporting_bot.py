@@ -42,6 +42,11 @@ class Pipe:
             description="Comma-separated list of user emails with elevated admin-like bot capabilities",
         )
 
+        MAX_SQL_ROWS: int = Field(
+            default=200,
+            description="Maximum result rows to print for run sql command",
+        )
+
     def __init__(self):
         self.type = "pipe"
         self.id = "usage-reporting-bot"
@@ -128,7 +133,7 @@ class Pipe:
                 "**Available Commands (Admins Only)**\n"
                 "* **/usage_stats all 45d** stats by all users for 45 days\n"
                 "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
-                "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database.\n- For SQLite: use /run_sql PRAGMA table_info(usage_costs) to see available table columns\n- For Postgres db: /run_sql SELECT * FROM information_schema.columns WHERE table_name = 'usage_costs'"
+                "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database.\n  - For SQLite: use /run_sql PRAGMA table_info(usage_costs) to see available table columns\n  - For Postgres db: /run_sql SELECT * FROM information_schema.columns WHERE table_name = 'usage_costs'"
             )
         
         return help_message
@@ -496,9 +501,12 @@ class Pipe:
                 else:
                     headers = rows[0]._fields
 
+                max_print_rows = int(self.valves.MAX_SQL_ROWS)
+
                 # Format data
                 formatted_data = []
-                for row in rows:
+                total_rows = len(rows)
+                for row in rows[:max_print_rows]:
                     formatted_row = [str(getattr(row, col, '')) for col in headers]
                     formatted_data.append(formatted_row)
 
@@ -512,6 +520,10 @@ class Pipe:
                 for row in formatted_data:
                     table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
                 table += "```\n"  # End code block
+
+                # Add truncation notice if necessary
+                if total_rows > max_print_rows:
+                    table += f"\n*Note: Results truncated. Showing {max_print_rows} rows out of {total_rows} total rows.*"
 
                 print(f"usage_reporting_bot run_sql |  returned query results {len(rows)} rows")
 

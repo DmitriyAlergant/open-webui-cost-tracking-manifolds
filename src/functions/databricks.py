@@ -1,5 +1,5 @@
 """
-title: Databricks Manifold Pipe with Cost Tracking
+title: Databricks Llama Manifold
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
