@@ -31,7 +31,7 @@ class Pipe:
             description="Required API key to retrieve the model list.",
         )
         ENABLED_MODELS: str = Field(
-            default="gpt-4o,gpt-4o-mini,gpt-4-turbo,o1-preview,o1-mini",
+            default="gpt-4o-2024-11-20,gpt-4o-mini,gpt-4-turbo,o1-preview,o1-mini",
             description="List of enabled model IDs",
         )
         DEBUG: bool = Field(default=False, description="Display debugging messages")
