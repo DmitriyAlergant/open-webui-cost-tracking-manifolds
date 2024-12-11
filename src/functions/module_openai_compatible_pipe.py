@@ -117,6 +117,7 @@ class OpenAIPipe:
                 __event_emitter__=__event_emitter__,
                 status="Requested...",
                 persist_usage=False,
+                context_messages_count=len(body["messages"])
             )
 
 
@@ -174,6 +175,7 @@ class OpenAIPipe:
                                     __event_emitter__=__event_emitter__,
                                     status="Streaming...",
                                     persist_usage=False,
+                                    context_messages_count=len(body["messages"])
                                 )
 
                                 streamed_content_buffer = ""
@@ -207,6 +209,7 @@ class OpenAIPipe:
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
                             persist_usage=True,
+                            context_messages_count=len(body["messages"])
                         )
 
                         if self.debug:
@@ -250,6 +253,7 @@ class OpenAIPipe:
                     __event_emitter__=__event_emitter__,
                     status="Completed",
                     persist_usage=True,
+                    context_messages_count=len(body["messages"])
                 )
 
                 return response_json

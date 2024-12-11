@@ -85,6 +85,17 @@ class UsagePersistenceManager:
             CREATE INDEX IF NOT EXISTS idx_user_id ON usage_costs(user_id);
         """
 
+        # Create usage_costs_by_chat table
+        create_chat_costs_table_sql = """
+            CREATE TABLE IF NOT EXISTS usage_costs_by_chat (
+                chat_id TEXT PRIMARY KEY,
+                user_id TEXT,
+                user_email TEXT,
+                total_cost DECIMAL(20,8),
+                cost_currency TEXT,
+                last_updated TIMESTAMP NOT NULL
+            )
+        """
 
         try:
             with get_db() as db:
@@ -92,6 +103,7 @@ class UsagePersistenceManager:
                 db.execute(text(create_table_sql))
                 db.execute(text(create_index1_sql))
                 db.execute(text(create_index2_sql))
+                db.execute(text(create_chat_costs_table_sql))
                 db.commit()
         except Exception as e:
             print(f"{Config.INFO_PREFIX} Database error in _init_db: {e}")
@@ -146,6 +158,96 @@ class UsagePersistenceManager:
 
             except Exception as e:
                 print(f"{Config.INFO_PREFIX} Database error in log_usage_fact: {e}")
+                raise
+
+    async def get_chat_total_cost(self, chat_id: str) -> tuple[Decimal, str]:
+        """Get total cost for a chat"""
+        if not chat_id:
+            return Decimal('0'), ''
+
+        select_sql = """
+            SELECT total_cost, cost_currency 
+            FROM usage_costs_by_chat 
+            WHERE chat_id = :chat_id
+        """
+
+        with get_db() as db:
+            try:
+                result = db.execute(
+                    text(select_sql),
+                    {"chat_id": chat_id}
+                ).fetchone()
+                
+                if result:
+                    return Decimal(str(result[0])), result[1]
+                return Decimal('0'), ''
+
+            except Exception as e:
+                print(f"{Config.INFO_PREFIX} Database error in get_chat_total_cost: {e}")
+                raise
+
+    async def update_chat_total_cost(
+        self,
+        chat_id: str,
+        user_id: str,
+        user_email: str,
+        additional_cost: Decimal,
+        currency: str
+    ):
+        """Update total cost for a chat"""
+        if not chat_id:
+            return
+
+        timestamp = datetime.now()
+        is_sqlite = "sqlite" in engine.url.drivername
+
+        if is_sqlite:
+            # SQLite version using ON CONFLICT
+            upsert_sql = """
+                INSERT INTO usage_costs_by_chat (
+                    chat_id, user_id, user_email, total_cost, cost_currency, last_updated
+                ) VALUES (
+                    :chat_id, :user_id, :user_email, :additional_cost, :currency, :timestamp
+                )
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    total_cost = total_cost + :additional_cost,
+                    cost_currency = :currency,
+                    last_updated = :timestamp
+            """
+        else:
+            # PostgreSQL version using ON CONFLICT
+            upsert_sql = """
+                INSERT INTO usage_costs_by_chat (
+                    chat_id, user_id, user_email, total_cost, cost_currency, last_updated
+                ) VALUES (
+                    :chat_id, :user_id, :user_email, :additional_cost, :currency, :timestamp
+                )
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    total_cost = usage_costs_by_chat.total_cost + :additional_cost,
+                    cost_currency = :currency,
+                    last_updated = :timestamp
+            """
+
+        with get_db() as db:
+            try:
+                db.execute(
+                    text(upsert_sql),
+                    {
+                        "chat_id": chat_id,
+                        "user_id": user_id,
+                        "user_email": user_email,
+                        "additional_cost": str(additional_cost),
+                        "currency": currency,
+                        "timestamp": timestamp
+                    }
+                )
+                db.commit()
+
+                if self.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} Updated chat {chat_id} total cost with additional {additional_cost} {currency}")
+
+            except Exception as e:
+                print(f"{Config.INFO_PREFIX} Database error in update_chat_total_cost: {e}")
                 raise
 
 
@@ -322,6 +424,23 @@ class CostTrackingManager:
 
         self.usage_persistence_manager = UsagePersistenceManager(debug=debug)
 
+        self.chat_id = self.__metadata__.get("chat_id")
+        self.chat_total_cost = Decimal('0')
+        self.chat_currency = ''
+        self._chat_cost_loaded = False
+        
+        # Load initial chat cost if chat_id exists
+        if self.chat_id:
+            asyncio.create_task(self._load_chat_cost())
+
+    async def _load_chat_cost(self):
+        """Load existing chat cost"""
+        self.chat_total_cost, self.chat_currency = await self.usage_persistence_manager.get_chat_total_cost(self.chat_id)
+        self._chat_cost_loaded = True
+        
+        if self.DEBUG:
+            print(f"{Config.DEBUG_PREFIX} Loaded chat {self.chat_id} total cost: {self.chat_total_cost} {self.chat_currency}")
+
     async def update_status_message(
         self,
         input_tokens,
@@ -332,6 +451,7 @@ class CostTrackingManager:
         current_cost,
         cost_currency,
         status,
+        context_messages_count=0
     ):
         current_time = time.time()
         processing_time = current_time - start_time
@@ -346,11 +466,22 @@ class CostTrackingManager:
 
         cost_str = ""
         if current_cost is not None and cost_currency is not None:
-            cost_str = (
-                f"{current_cost:,.2f}₽"
+            # Only include chat total cost if it's been loaded
+            total_cost = current_cost
+            if self.chat_id and self._chat_cost_loaded and cost_currency == self.chat_currency:
+                total_cost += self.chat_total_cost
+            
+            cost_str = "Cost of this chat: "
+
+            cost_str += (
+                f"{total_cost:,.2f}₽"
                 if cost_currency == "RUB"
-                else f"${current_cost:,.2f}"
+                else f"${total_cost:,.2f}"
             )
+
+            # Add warning about starting new chat if conditions are met
+            if input_tokens >= 20000 and context_messages_count >= 20:
+                cost_str += " - time to move to a new chat?"
 
         status_parts = [
             f"{processing_time:.2f}s" if start_time else "",
@@ -365,7 +496,7 @@ class CostTrackingManager:
                 if reasoning_tokens
                 else ""
             ),
-            f"Cost {cost_str}" if cost_str and "Requested" not in status else "",
+             f"{cost_str}" if cost_str else "",
             status if status else "",
         ]
 
@@ -396,10 +527,9 @@ class CostTrackingManager:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         status: str,
         persist_usage: bool,
+        context_messages_count: int=0,
     ):
-
         # Calculate Costs
-
         total_cost, cost_currency, model_used_by_cost_calculation = (
             self.cost_calculation_manager.calculate_costs(
                 input_tokens=input_tokens,
@@ -408,7 +538,6 @@ class CostTrackingManager:
         )
 
         # Send visual status message update event
-
         asyncio.create_task(
             self.update_status_message(
                 input_tokens,
@@ -419,28 +548,48 @@ class CostTrackingManager:
                 total_cost,
                 cost_currency,
                 status,
+                context_messages_count=context_messages_count
             )
         )
 
         if persist_usage:
+            async def persist_costs():
+                try:
+                    # Update chat total cost if this is a chat
+                    if self.chat_id:
+                        await self.usage_persistence_manager.update_chat_total_cost(
+                            chat_id=self.chat_id,
+                            user_id=self.__user__["id"],
+                            user_email=self.__user__["email"],
+                            additional_cost=total_cost,
+                            currency=cost_currency
+                        )
+                        # Only update local total after successful DB update
+                        self.chat_total_cost += total_cost
+                        self.chat_currency = cost_currency
 
-            # Usage Costs Recording to DB
+                    # Existing usage logging
+                    await self.usage_persistence_manager.log_usage_fact(
+                        user_id=self.__user__["id"],
+                        user_email=self.__user__["email"],
+                        metadata=json.dumps({
+                            "chat_id": self.__metadata__.get("chat_id", None),
+                            "context_messages_count": context_messages_count
+                        }),
+                        model=self.model,
+                        task=self.task,
+                        input_tokens=input_tokens,
+                        output_tokens=generated_tokens,
+                        total_cost=total_cost,
+                        cost_currency=cost_currency,
+                        model_used_by_cost_calculation=model_used_by_cost_calculation,
+                    )
+                except Exception as e:
+                    print(f"{Config.INFO_PREFIX} Error persisting costs: {e}")
+                    raise
 
-            asyncio.create_task(
-                self.usage_persistence_manager.log_usage_fact(
-                    user_id=self.__user__["id"],
-                    user_email=self.__user__["email"],
-                    metadata = json.dumps({"chat_id": self.__metadata__.get("chat_id", None)}), 
-                        #full __metadata__ object is too verbose
-                    model=self.model,
-                    task=self.task,
-                    input_tokens=input_tokens,
-                    output_tokens=generated_tokens,
-                    total_cost=total_cost,
-                    cost_currency=cost_currency,
-                    model_used_by_cost_calculation=model_used_by_cost_calculation,
-                )
-            )
+            # Launch persistence as a task
+            asyncio.create_task(persist_costs())
 
 
 # For OpenWebUI to accept this as a Function Module, there has to be a Filter or Pipe or Action class

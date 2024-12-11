@@ -201,6 +201,7 @@ class Pipe:
                 __event_emitter__=__event_emitter__,
                 status="Requested...",
                 persist_usage=False,
+                context_messages_count=len(messages)
             )
 
             # Init Anthropic API Client (Async)
@@ -263,6 +264,7 @@ class Pipe:
                                         __event_emitter__=__event_emitter__,
                                         status="Streaming...",
                                         persist_usage=False,
+                                        context_messages_count=len(messages)
                                     )
 
                                     streamed_content_buffer = ""
@@ -296,6 +298,7 @@ class Pipe:
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
                             persist_usage=True,
+                            context_messages_count=len(messages)
                         )
 
                         if self.valves.DEBUG:
@@ -343,6 +346,7 @@ class Pipe:
                     __event_emitter__=__event_emitter__,
                     status="Completed",
                     persist_usage=True,
+                    context_messages_count=len(messages)
                 )
 
                 return generated_text
