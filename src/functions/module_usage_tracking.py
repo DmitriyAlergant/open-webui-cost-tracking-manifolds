@@ -425,6 +425,12 @@ class CostTrackingManager:
         self.usage_persistence_manager = UsagePersistenceManager(debug=debug)
 
         self.chat_id = self.__metadata__.get("chat_id")
+        self.session_id = self.__metadata__.get("session_id")
+        
+        # Use session_id as chat_id for local chats
+        if self.chat_id == 'local' and self.session_id:
+            self.chat_id = self.session_id
+        
         self.chat_total_cost = Decimal('0')
         self.chat_currency = ''
         self._chat_cost_loaded = False
@@ -435,6 +441,12 @@ class CostTrackingManager:
 
     async def _load_chat_cost(self):
         """Load existing chat cost"""
+        if self.chat_id == 'local':
+            self.chat_total_cost = Decimal('0')
+            self.chat_currency = ''
+            self._chat_cost_loaded = True
+            return
+        
         self.chat_total_cost, self.chat_currency = await self.usage_persistence_manager.get_chat_total_cost(self.chat_id)
         self._chat_cost_loaded = True
         
@@ -466,12 +478,16 @@ class CostTrackingManager:
 
         cost_str = ""
         if current_cost is not None and cost_currency is not None:
-            # Only include chat total cost if it's been loaded
-            total_cost = current_cost
-            if self.chat_id and self._chat_cost_loaded and cost_currency == self.chat_currency:
-                total_cost += self.chat_total_cost
-            
-            cost_str = "Cost of this chat: "
+            # For local chat_id, only show current request cost
+            if self.chat_id == 'local':
+                cost_str = "Cost of this request: "
+                total_cost = current_cost
+            else:
+                # Only include chat total cost if it's been loaded
+                cost_str = "Cost of this chat: "
+                total_cost = current_cost
+                if self.chat_id and self._chat_cost_loaded and cost_currency == self.chat_currency:
+                    total_cost += self.chat_total_cost
 
             cost_str += (
                 f"{total_cost:,.2f}₽"
@@ -480,7 +496,7 @@ class CostTrackingManager:
             )
 
             # Add warning about starting new chat if conditions are met
-            if input_tokens >= 20000 and context_messages_count >= 20:
+            if self.chat_id != 'local' and input_tokens >= 20000 and context_messages_count >= 20:
                 cost_str += " - time to move to a new chat?"
 
         status_parts = [
@@ -568,14 +584,17 @@ class CostTrackingManager:
                         self.chat_total_cost += total_cost
                         self.chat_currency = cost_currency
 
-                    # Existing usage logging
+                    # Existing usage logging with enhanced metadata
+                    metadata_dict = {
+                        "chat_id": self.__metadata__.get("chat_id"),
+                        "session_id": self.__metadata__.get("session_id"),
+                        "context_messages_count": context_messages_count
+                    }
+                    
                     await self.usage_persistence_manager.log_usage_fact(
                         user_id=self.__user__["id"],
                         user_email=self.__user__["email"],
-                        metadata=json.dumps({
-                            "chat_id": self.__metadata__.get("chat_id", None),
-                            "context_messages_count": context_messages_count
-                        }),
+                        metadata=json.dumps(metadata_dict),
                         model=self.model,
                         task=self.task,
                         input_tokens=input_tokens,
