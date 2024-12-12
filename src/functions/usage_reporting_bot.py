@@ -47,6 +47,14 @@ class Pipe:
             description="Maximum result rows to print for run sql command",
         )
 
+        BALANCE_API_URL: str = Field(
+            default="",
+            description="Balance API endpoint URL",
+        )
+
+        BALANCE_API_KEY: str = Field(default="", description="API key for balance checking")
+
+
     def __init__(self):
         self.type = "pipe"
         self.id = "usage-reporting-bot"
@@ -92,6 +100,12 @@ class Pipe:
 
     def handle_command(self, __user__, command):
 
+        if command == "/balance":
+            if self.is_superuser(__user__):
+                return self.get_balance()
+            else:
+                return "Sorry, this feature is only available to Admins"
+
         if match := re.match(r"/usage_stats\s+all(?:\s+(\d+)d)?", command):
             days = int(match.group(1)) if match.group(1) else 30
 
@@ -131,6 +145,7 @@ class Pipe:
         if self.is_superuser(__user__):
             help_message += (
                 "**Available Commands (Admins Only)**\n"
+                "* **/balance** Check current API balance\n"
                 "* **/usage_stats all 45d** stats by all users for 45 days\n"
                 "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
                 "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database.\n  - For SQLite: use /run_sql PRAGMA table_info(usage_costs) to see available table columns\n  - For Postgres db: /run_sql SELECT * FROM information_schema.columns WHERE table_name = 'usage_costs'"
@@ -534,3 +549,35 @@ class Pipe:
             line_number = tb.tb_lineno
             print(f"usage_reporting_bot run_sql | Error on line {line_number}: {e}")
             raise e
+
+    def get_balance(self) -> str:
+        if not self.valves.BALANCE_API_KEY:
+            return "Error: API key not configured"
+
+        if not self.valves.BALANCE_API_URL:
+            return "Error: API URL not configured"
+
+        try:
+            if self.valves.DEBUG:
+                print(f"{Config.DEBUG_PREFIX} Requesting balance from {self.valves.BALANCE_API_URL}")
+
+            headers = {"Authorization": f"Bearer {self.valves.BALANCE_API_KEY}"}
+            response = requests.get(self.valves.BALANCE_API_URL, headers=headers)
+            response.raise_for_status()
+
+            data = response.json()
+            balance = data["balance"]
+
+            if self.valves.DEBUG:
+                print(f"{Config.DEBUG_PREFIX} API returned balance: {balance}")
+
+            return f"Current API balance: {balance:.2f}"
+
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, "response") and e.response is not None:
+                error_msg = f"Error retrieving balance: {e.response.status_code} - {e.response.text}"
+            else:
+                error_msg = f"Error retrieving balance: {str(e)}"
+            if self.valves.DEBUG:
+                print(f"{Config.DEBUG_PREFIX} {error_msg}")
+            return error_msg
