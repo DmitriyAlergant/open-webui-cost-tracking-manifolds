@@ -21,6 +21,9 @@ from open_webui.utils.misc import get_last_user_message
 
 import pandas as pd
 
+from openai import OpenAI, AsyncOpenAI
+import asyncio
+
 class Config:
     DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
     DEBUG = True
@@ -54,6 +57,11 @@ class Pipe:
 
         BALANCE_API_KEY: str = Field(default="", description="API key for balance checking")
 
+        SQL_ASSISTANT_MODEL: str = Field(
+            default="anthropic.claude-3-5-sonnet-20241022",
+            description="Model to use for SQL query generation",
+        )
+
 
     def __init__(self):
         self.type = "pipe"
@@ -85,8 +93,7 @@ class Pipe:
         return False
         
 
-    def pipe(self, body: dict, __user__: dict) -> str:
-
+    async def pipe(self, body: dict, __user__: dict) -> str:
         command = get_last_user_message(body["messages"])
 
         if self.valves.DEBUG:
@@ -94,12 +101,10 @@ class Pipe:
 
         if command == "/help":
             return self.print_help(__user__)
-
         else:
-            return self.handle_command(__user__, command)
+            return await self.handle_command(__user__, command)
 
-    def handle_command(self, __user__, command):
-
+    async def handle_command(self, __user__, command):
         if command == "/balance":
             if self.is_superuser(__user__):
                 return self.get_balance()
@@ -130,7 +135,13 @@ class Pipe:
 
         if command.startswith("/run_sql "):
             if self.is_superuser(__user__):
-                return self.run_sql_command(command[len("/run_sql "):])  # Remove "/usage_sql " prefix
+                return self.run_sql_command(command[len("/run_sql "):])
+            else:
+                return "Sorry, this feature is only available to Admins"
+
+        if command.startswith("/ask "):
+            if self.is_superuser(__user__):
+                return await self.handle_ask_command(__user__, command[5:])
             else:
                 return "Sorry, this feature is only available to Admins"
 
@@ -148,7 +159,8 @@ class Pipe:
                 "* **/balance** Check current API balance\n"
                 "* **/usage_stats all 45d** stats by all users for 45 days\n"
                 "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
-                "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database.\n  - For SQLite: use /run_sql PRAGMA table_info(usage_costs) to see available table columns\n  - For Postgres db: /run_sql SELECT * FROM information_schema.columns WHERE table_name = 'usage_costs'"
+                "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database.\n  - For SQLite: use /run_sql PRAGMA table_info(usage_costs) to see available table columns\n  - For Postgres db: /run_sql SELECT * FROM information_schema.columns WHERE table_name = 'usage_costs'\n"
+                "* **/ask** Ask questions about usage in natural language. SQL will be generated automatically.\n"
             )
         
         return help_message
@@ -581,3 +593,118 @@ class Pipe:
             if self.valves.DEBUG:
                 print(f"{Config.DEBUG_PREFIX} {error_msg}")
             return error_msg
+
+    def get_table_schema(self):
+        """Get the usage_costs table schema based on database type"""
+        is_sqlite = "sqlite" in engine.url.drivername
+        
+        if is_sqlite:
+            query = "PRAGMA table_info(usage_costs);"
+        else:
+            query = """
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns 
+                WHERE table_name = 'usage_costs'
+                ORDER BY ordinal_position;
+            """
+            
+        with get_db() as db:
+            result = db.execute(text(query))
+            rows = result.fetchall()
+            
+        if is_sqlite:
+            schema = "\n".join([f"- {row.name}: {row.type}" for row in rows])
+        else:
+            schema = "\n".join([f"- {row.column_name}: {row.data_type}" for row in rows])
+            
+        return schema
+
+    def get_user_api_key(self, user_id):
+        """Get the user's API key from the database"""
+        query = "SELECT api_key FROM user WHERE id = :user_id;"
+        with get_db() as db:
+            result = db.execute(text(query), {"user_id": user_id})
+            row = result.fetchone()
+            return row.api_key if row else None
+
+    async def handle_ask_command(self, __user__, question):
+        """Handle natural language questions about usage data"""
+        if self.valves.DEBUG:
+            print(f"{Config.DEBUG_PREFIX} User {__user__['email']} asked: {question}")
+
+        # Get user's API key
+        api_key = self.get_user_api_key(__user__["id"])
+        if not api_key:
+            return ("Error: You must have an API key generated to use this feature.\n"
+                   "Please go to Settings -> Account to generate an API key.")
+
+        # Get database type and schema
+        is_sqlite = "sqlite" in engine.url.drivername
+        db_type = "SQLite" if is_sqlite else "PostgreSQL"
+        schema = self.get_table_schema()
+
+        # Construct the prompt
+        prompt = f"""You are a SQL query generator. Generate a SQL query for the following question:
+
+Question: {question}
+
+Database Type: {db_type}
+Table: usage_costs
+Schema:
+{schema}
+
+The query must start with SELECT and end with a semicolon.
+Generate only the SQL query, nothing else."""
+
+        try:
+            # Create AsyncOpenAI client
+            client = AsyncOpenAI(
+                base_url="http://localhost:8080/api",
+                api_key=api_key
+            )
+
+            # Get SQL query from LLM using async call
+            completion = await client.chat.completions.create(
+                model=self.valves.SQL_ASSISTANT_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a SQL expert assistant."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            # Extract and clean query from response
+            sql_query = completion.choices[0].message.content.strip()
+            sql_query = re.sub(r'^```sql\s*|\s*```$', '', sql_query, flags=re.MULTILINE)
+            sql_query = sql_query.strip()
+
+            if self.valves.DEBUG:
+                print(f"{Config.DEBUG_PREFIX} Generated SQL for {__user__['email']}:\n{sql_query}")
+
+            # Validate query
+            if not re.match(r'^SELECT', sql_query, re.IGNORECASE):
+                return "Error: Generated query must start with SELECT"
+            
+            if not sql_query.rstrip().endswith(';'):
+                sql_query += ';'
+
+            if self.valves.DEBUG:
+                print(f"{Config.DEBUG_PREFIX} Running SQL for {__user__['email']}...")
+
+            # Execute the query
+            result = self.run_sql_command(sql_query)
+
+            # Format the response
+            response = "Generated SQL Query:\n```sql\n"
+            response += sql_query + "\n```\n\n"
+            response += result
+
+            if self.valves.DEBUG:
+                print(f"{Config.DEBUG_PREFIX} Returning formatted response to {__user__['email']}")
+
+            return response
+
+        except Exception as e:
+            _, _, tb = sys.exc_info()
+            error_msg = f"Error on line {tb.tb_lineno}: {str(e)}"
+            print(f"{Config.DEBUG_PREFIX} Error processing ask command for {__user__['email']}: {error_msg}")
+            return f"Error processing question: {str(e)}"
