@@ -467,52 +467,64 @@ class CostTrackingManager:
     ):
         current_time = time.time()
         processing_time = current_time - start_time
+        is_final = status in ("Completed", "Stopped", "")
 
         if __event_emitter__ is None:
             if self.DEBUG:
                 print(
                     f"{Config.DEBUG_PREFIX} __event_emitter__ is None. Not sending status update event"
                 )
-
             return
 
         cost_str = ""
         if current_cost is not None and cost_currency is not None:
+            # Format current request cost with + for in-progress
+            request_cost_str = (
+                f"{current_cost:,.2f}₽{'' if is_final else '+'}"
+                if cost_currency == "RUB"
+                else f"${current_cost:,.2f}{'' if is_final else '+'}"
+            )
+            
             # For local chat_id, only show current request cost
             if self.chat_id == 'local':
-                cost_str = "Cost of this request: "
-                total_cost = current_cost
+                cost_str = f"Cost: {request_cost_str}"
             else:
-                # Only include chat total cost if it's been loaded
-                cost_str = "Cost of this chat: "
-                total_cost = current_cost
-                if self.chat_id and self._chat_cost_loaded and cost_currency == self.chat_currency:
-                    total_cost += self.chat_total_cost
+                # Show both chat total and current request costs if chat cost is loaded
 
-            cost_str += (
-                f"{total_cost:,.2f}₽"
-                if cost_currency == "RUB"
-                else f"${total_cost:,.2f}"
-            )
+                cost_str = f"This request: {request_cost_str}"
+
+                if self._chat_cost_loaded:
+                    total_cost = self.chat_total_cost + current_cost
+                    total_cost_str = (
+                        f"{total_cost:,.2f}₽{'' if is_final else '+'}"
+                        if cost_currency == "RUB"
+                        else f"${total_cost:,.2f}{'' if is_final else '+'}"
+                    )
+                    cost_str += f" | Chat total: {total_cost_str}"
 
             # Add warning about starting new chat if conditions are met
             if self.chat_id != 'local' and input_tokens >= 20000 and context_messages_count >= 20:
-                cost_str += " - time to move to a new chat?"
+                cost_str += " | Consider starting a new chat"
+
+        # Token information varies based on final status
+        token_parts = []
+        if input_tokens is not None:
+            token_parts.append(f"{input_tokens} input tokens")
+        
+        if is_final:
+            if generated_tokens:
+                if reasoning_tokens:
+                    token_parts.append(f"{generated_tokens} output (with {reasoning_tokens} reasoning)")
+                else:
+                    pass
+                    #token_parts.append(f"{generated_tokens} output tokens")
+
+        token_str = " | ".join(token_parts) if token_parts else ""
 
         status_parts = [
             f"{processing_time:.2f}s" if start_time else "",
-            f"{input_tokens} Input Tokens" if input_tokens is not None else "",
-            (
-                f"{generated_tokens} Generated Tokens"
-                if generated_tokens is not None
-                else ""
-            ),
-            (
-                f"including {reasoning_tokens} Reasoning Tokens"
-                if reasoning_tokens
-                else ""
-            ),
-             f"{cost_str}" if cost_str else "",
+            token_str if token_str else "",
+            f"{cost_str}" if cost_str else "",
             status if status else "",
         ]
 
@@ -523,7 +535,7 @@ class CostTrackingManager:
                 "type": "status",
                 "data": {
                     "description": status_message,
-                    "done": True if status in ("Completed", "Stopped", "") else False,
+                    "done": is_final,
                 },
             }
         )
