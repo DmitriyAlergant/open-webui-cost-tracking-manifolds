@@ -621,10 +621,24 @@ class Pipe:
 
     def get_user_api_key(self, user_id):
         """Get the user's API key from the database"""
-        query = "SELECT api_key FROM user WHERE id = :user_id;"
+        is_sqlite = "sqlite" in engine.url.drivername
+        
+        if is_sqlite:
+            query = "SELECT api_key FROM user WHERE id = :user_id;"
+        else:
+            # For PostgreSQL, explicitly use the public schema
+            query = "SELECT api_key FROM public.user WHERE id = :user_id;"
+            
+        if self.valves.DEBUG:
+            print(f"{Config.DEBUG_PREFIX} Getting API key for user ID {user_id} using query: {query}")
+            
         with get_db() as db:
             result = db.execute(text(query), {"user_id": user_id})
             row = result.fetchone()
+            
+            if self.valves.DEBUG and not row:
+                print(f"{Config.DEBUG_PREFIX} No API key found for user ID {user_id}")
+                
             return row.api_key if row else None
 
     async def handle_ask_command(self, __user__, question):
