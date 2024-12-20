@@ -33,6 +33,7 @@ from decimal import Decimal
 from datetime import datetime
 from sqlalchemy import text
 from open_webui.apps.webui.internal.db import get_db, engine
+from open_webui.utils.misc import get_messages_content
 
 
 class Pipe:
@@ -102,9 +103,9 @@ class Pipe:
         if command == "/help":
             return self.print_help(__user__)
         else:
-            return await self.handle_command(__user__, command)
+            return await self.handle_command(__user__, body, command)
 
-    async def handle_command(self, __user__, command):
+    async def handle_command(self, __user__, body, command):
         if command == "/balance":
             if self.is_superuser(__user__):
                 return self.get_balance()
@@ -141,7 +142,7 @@ class Pipe:
 
         if command.startswith("/ask "):
             if self.is_superuser(__user__):
-                return await self.handle_ask_command(__user__, command[5:])
+                return await self.handle_ask_command(__user__, body, command[5:])
             else:
                 return "Sorry, this feature is only available to Admins"
 
@@ -641,7 +642,7 @@ class Pipe:
                 
             return row.api_key if row else None
 
-    async def handle_ask_command(self, __user__, question):
+    async def handle_ask_command(self, __user__, body, question):
         """Handle natural language questions about usage data"""
         if self.valves.DEBUG:
             print(f"{Config.DEBUG_PREFIX} User {__user__['email']} asked: {question}")
@@ -658,17 +659,24 @@ class Pipe:
         schema = self.get_table_schema()
 
         # Construct the prompt
-        prompt = f"""You are a SQL query generator. Generate a SQL query for the following question:
+        prompt = (get_messages_content(body["messages"]) +      
+                        f"""^^ THIS WAS PRIOR CONVERSATION CONTEXT^^
+                        
+                        NOW, you are a SQL query generator. Generate a SQL query for the following question:
 
-Question: {question}
+                Question: {question}
 
-Database Type: {db_type}
-Table: usage_costs
-Schema:
-{schema}
+                Database Type: {db_type}
+                Table: usage_costs
+                Schema:
+                {schema}
 
-The query must start with SELECT and end with a semicolon.
-Generate only the SQL query, nothing else."""
+                Note: the Task column is NULL for the regular chat requests; Task can be "title_generation", "tags_generation", "query_generation", "autocomplete_generation" made by the UI tool that accompany chats.
+                Make a reasonable assumption about the users intention if they want information only from main chat completion requests (Task is NULL) or to include task usage. 
+                For costs summarization, typically all tasks can be included. If a breakdown by model is requested, probably only main chat completions should be included. 
+                For counting usage/requests, only main chat completions should be included. If unsure, consider building the report to separately highlight both numbers.
+
+                The query must start with SELECT and end with a semicolon. Generate only the SQL query, nothing else. Do not use WITH or CTE clauses.""")
 
         try:
             # Create AsyncOpenAI client
@@ -696,7 +704,7 @@ Generate only the SQL query, nothing else."""
 
             # Validate query
             if not re.match(r'^SELECT', sql_query, re.IGNORECASE):
-                return "Error: Generated query must start with SELECT"
+                return "Error: executable query not obtained.\n" + sql_query 
             
             if not sql_query.rstrip().endswith(';'):
                 sql_query += ';'
