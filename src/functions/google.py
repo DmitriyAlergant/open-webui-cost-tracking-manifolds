@@ -49,8 +49,20 @@ class Pipe:
                 "name": "gemini-1.5-flash",
             },
             {
+                "id": "gemini-2.0-flash-exp",
+                "name": "gemini-2.0-flash-exp",
+            },
+            {
+                "id": "gemini-2.0-flash-thinking-exp",
+                "name": "gemini-2.0-flash-thinking-exp",
+            },
+            {
                 "id": "gemini-1.5-pro",
                 "name": "gemini-1.5-pro",
+            },
+            {
+                "id": "gemini-exp-1206",
+                "name": "gemini-exp-1206",
             },
         ]
 
