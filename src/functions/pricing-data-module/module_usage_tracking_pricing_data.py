@@ -8,6 +8,12 @@ license: MIT
 """
 
 pricing_data = {
+    "openai.o1": {
+        "input_cost_per_token": 0.015,
+        "output_cost_per_token": 0.060,
+        "token_units": 1000,
+        "cost_currency": "USD",
+    },    
     "openai.o1-preview": {
         "input_cost_per_token": 0.015,
         "output_cost_per_token": 0.060,
