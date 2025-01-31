@@ -8,25 +8,49 @@ license: MIT
 """
 
 pricing_data = {
+    "openai.o1": {
+        "input_cost_per_token": 0.015,
+        "output_cost_per_token": 0.060,
+        "token_units": 1000,
+        "cost_currency": "USD",
+    },    
     "openai.o1-preview": {
         "input_cost_per_token": 0.015,
         "output_cost_per_token": 0.060,
         "token_units": 1000,
         "cost_currency": "USD",
     },
+    "openai.o3-mini": {    
+        "input_cost_per_token": 0.0011,
+        "output_cost_per_token": 0.0044,
+        "token_units": 1000,
+        "cost_currency": "USD",
+    },
     "openai.o1-mini": {
-        "input_cost_per_token": 0.003,
-        "output_cost_per_token": 0.012,
+        "input_cost_per_token": 0.0011,
+        "output_cost_per_token": 0.0044,
         "token_units": 1000,
         "cost_currency": "USD",
-    },
-    "chatgpt-4o-latest": {
-        "input_cost_per_token": 0.005,
-        "output_cost_per_token": 0.015,
-        "token_units": 1000,
-        "cost_currency": "USD",
-    },
+    },   
     "openai.gpt-4o": {
+        "input_cost_per_token": 0.0025,
+        "output_cost_per_token": 0.0100,
+        "token_units": 1000,
+        "cost_currency": "USD",
+    },
+    "openai.chatgpt-4o-latest": {
+        "input_cost_per_token": 0.005,
+        "output_cost_per_token": 0.0150,
+        "token_units": 1000,
+        "cost_currency": "USD",
+    },
+    "openai.gpt-4o-2024-11-20": {
+        "input_cost_per_token": 0.0025,
+        "output_cost_per_token": 0.0100,
+        "token_units": 1000,
+        "cost_currency": "USD",
+    },
+    "openai.gpt-4o-2024-08-06": {
         "input_cost_per_token": 0.0025,
         "output_cost_per_token": 0.0100,
         "token_units": 1000,

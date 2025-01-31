@@ -8,19 +8,21 @@ license: MIT
 """
 
 import json
-from pydantic import BaseModel, Field
-
-from typing import Optional
-
 
 import time
 import asyncio
 import sys
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, getcontext
 from threading import Lock
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable
+from decimal import Decimal
+from datetime import datetime
+from sqlalchemy import text
+from open_webui.internal.db import get_db, engine
+
+
 
 import tiktoken
 
@@ -34,13 +36,6 @@ class Config:
     DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
     INFO_PREFIX = "INFO:     " + __name__ + " -"
     COMPENSATION = 1.0
-
-
-from decimal import Decimal
-from datetime import datetime
-from sqlalchemy import text
-from open_webui.apps.webui.internal.db import get_db, engine
-
 
 class UsagePersistenceManager:
     def __init__(self, debug=False):

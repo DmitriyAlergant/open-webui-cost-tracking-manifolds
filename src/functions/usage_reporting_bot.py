@@ -17,24 +17,21 @@ import requests
 
 import sys
 
-from open_webui.utils.misc import get_last_user_message
 
 import pandas as pd
 
 from openai import OpenAI, AsyncOpenAI
-import asyncio
-
-class Config:
-    DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
-    DEBUG = True
-
 
 from decimal import Decimal
 from datetime import datetime
 from sqlalchemy import text
-from open_webui.apps.webui.internal.db import get_db, engine
-from open_webui.utils.misc import get_messages_content
+from open_webui.internal.db import get_db, engine
+from open_webui.utils.misc import get_messages_content, get_last_user_message
 
+
+class Config:
+    DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
+    DEBUG = True
 
 class Pipe:
     class Valves(BaseModel):
