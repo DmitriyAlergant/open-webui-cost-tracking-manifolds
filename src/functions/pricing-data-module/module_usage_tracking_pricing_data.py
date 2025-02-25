@@ -98,6 +98,12 @@ pricing_data = {
         "token_units": 1000,
         "cost_currency": "USD",
     },
+    "anthropic.claude-3-7-sonnet": {
+        "input_cost_per_token": 0.003,
+        "output_cost_per_token": 0.015,
+        "token_units": 1000,
+        "cost_currency": "USD",
+    },
     "anthropic.claude-3-haiku": {
         "input_cost_per_token": 0.00025,
         "output_cost_per_token": 0.00125,
