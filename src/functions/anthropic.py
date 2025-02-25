@@ -63,18 +63,18 @@ class Pipe:
             {"id": "claude-3-7-sonnet-20250219", "name": "Claude 3.7 Sonnet (2025-02-19) non-thinking", "max_tokens": 16384, "thinking": None},
             
             {"id": "claude-3-7-sonnet-thinking-small", "name": "Claude 3.7 Sonnet + Thinking (4K)", 
-             "api_model_id": "claude-3-7-sonnet-20250219", "max_tokens": 8000, 
+             "api_model_id": "claude-3-7-sonnet-20250219", "max_tokens": 16384, 
              "thinking": {"type": "enabled", "budget_tokens": 4000},
              "description": "Claude 3.7 with extended thinking (forces temperature=1.0, removes top_k/top_p)"},
             
             {"id": "claude-3-7-sonnet-thinking-medium", "name": "Claude 3.7 Sonnet + Thinking (16K)", 
-             "api_model_id": "claude-3-7-sonnet-20250219", "max_tokens": 32000, 
+             "api_model_id": "claude-3-7-sonnet-20250219", "max_tokens": 64000, 
              "thinking": {"type": "enabled", "budget_tokens": 16000},
              "description": "Claude 3.7 with extended thinking (forces temperature=1.0, removes top_k/top_p)"},
             
             {"id": "claude-3-7-sonnet-thinking-high", "name": "Claude 3.7 Sonnet + Thinking (64K)", 
-             "api_model_id": "claude-3-7-sonnet-20250219", "max_tokens": 64000, 
-             "thinking": {"type": "enabled", "budget_tokens": 96000},
+             "api_model_id": "claude-3-7-sonnet-20250219", "max_tokens": 128000, 
+             "thinking": {"type": "enabled", "budget_tokens": 64000},
              "description": "Claude 3.7 with extended thinking (forces temperature=1.0, removes top_k/top_p)"},
         ]
 
@@ -267,6 +267,7 @@ class Pipe:
                     last_update_time = time.time()
                     current_text_content = ""
                     reasoning_tokens = None
+                    in_thinking_block = False
 
                     try:
                         async with aiohttp.ClientSession() as session:
@@ -322,8 +323,86 @@ class Pipe:
                                             event_data = json.loads(data)
                                             event_type = event_data.get('type')
                                             
+                                            # Handle thinking delta event
+                                            if event_type == 'content_block_delta' and event_data.get('delta', {}).get('type') == 'thinking_delta':
+                                                thinking_delta = event_data['delta']['thinking']
+                                                
+                                                if self.valves.DEBUG:
+                                                    print(f"{self.debug_prefix} User '{username}' received thinking delta: {thinking_delta[:30]}...")
+                                                
+                                                # Format for OpenAI-compatible streaming with <think> tags
+                                                # Only send the opening tag for the first thinking delta
+                                                if not in_thinking_block:
+                                                    thinking_prefix = "<thinking>\n"
+                                                    content_json = {
+                                                        "choices": [
+                                                            {"index": 0, "delta": {"content": thinking_prefix}}
+                                                        ]
+                                                    }
+                                                    yield f"data: {json.dumps(content_json)}\n\n"
+                                                    streamed_content_buffer += thinking_prefix
+                                                    in_thinking_block = True
+                                                
+                                                # Send the thinking content
+                                                content_json = {
+                                                    "choices": [
+                                                        {"index": 0, "delta": {"content": thinking_delta}}
+                                                    ]
+                                                }
+                                                yield f"data: {json.dumps(content_json)}\n\n"
+                                                streamed_content_buffer += thinking_delta
+                                            
+                                            # Handle signature delta event (end of thinking block)
+                                            elif event_type == 'content_block_delta' and event_data.get('delta', {}).get('type') == 'signature_delta':
+                                                # Close the thinking block with </think> tag
+                                                if self.valves.DEBUG:
+                                                    print(f"{self.debug_prefix} User '{username}' received signature delta, closing thinking block")
+                                                
+                                                if in_thinking_block:
+                                                    thinking_suffix = "\n</thinking>\n\n"
+                                                    content_json = {
+                                                        "choices": [
+                                                            {"index": 0, "delta": {"content": thinking_suffix}}
+                                                        ]
+                                                    }
+                                                    yield f"data: {json.dumps(content_json)}\n\n"
+                                                    streamed_content_buffer += thinking_suffix
+                                                    in_thinking_block = False
+                                            
+                                            # Handle redacted thinking block
+                                            elif event_type == 'content_block_start' and event_data.get('content_block', {}).get('type') == 'redacted_thinking':
+                                                if self.valves.DEBUG:
+                                                    print(f"{self.debug_prefix} User '{username}' received redacted thinking block")
+                                                
+                                                # Send a placeholder for redacted thinking with <think> tags
+                                                redacted_message = "<think>\n[Redacted thinking content - encrypted for safety reasons]\n</think>\n\n"
+                                                content_json = {
+                                                    "choices": [
+                                                        {"index": 0, "delta": {"content": redacted_message}}
+                                                    ]
+                                                }
+                                                yield f"data: {json.dumps(content_json)}\n\n"
+                                                streamed_content_buffer += redacted_message
+                                            
+                                            # Handle content block start for text blocks
+                                            elif event_type == 'content_block_start' and event_data.get('content_block', {}).get('type') == 'text':
+                                                # If we were in a thinking block and didn't get a signature delta, close it
+                                                if in_thinking_block:
+                                                    if self.valves.DEBUG:
+                                                        print(f"{self.debug_prefix} User '{username}' transitioning from thinking to text block")
+                                                    
+                                                    thinking_suffix = "\n</think>\n\n"
+                                                    content_json = {
+                                                        "choices": [
+                                                            {"index": 0, "delta": {"content": thinking_suffix}}
+                                                        ]
+                                                    }
+                                                    yield f"data: {json.dumps(content_json)}\n\n"
+                                                    streamed_content_buffer += thinking_suffix
+                                                    in_thinking_block = False
+                                            
                                             # Handle text delta event
-                                            if event_type == 'content_block_delta' and event_data.get('delta', {}).get('type') == 'text_delta':
+                                            elif event_type == 'content_block_delta' and event_data.get('delta', {}).get('type') == 'text_delta':
                                                 text_delta = event_data['delta']['text']
                                                 current_text_content += text_delta
                                                 streamed_content_buffer += text_delta
@@ -462,6 +541,18 @@ class Pipe:
                 for content_item in res.get("content", []):
                     if content_item["type"] == "text":
                         generated_text += content_item["text"]
+                    elif content_item["type"] == "thinking":
+                        # Format thinking content with <think> tags
+                        thinking_text = content_item.get("thinking", "")
+                        if thinking_text:
+                            if self.valves.DEBUG:
+                                print(f"{self.debug_prefix} User '{username}' received thinking block: {thinking_text[:50]}...")
+                            generated_text += f"<think>\n{thinking_text}\n</think>\n\n"
+                    elif content_item["type"] == "redacted_thinking":
+                        # Add a placeholder for redacted thinking
+                        if self.valves.DEBUG:
+                            print(f"{self.debug_prefix} User '{username}' received redacted thinking block")
+                        generated_text += "<think>\n[Redacted thinking content - encrypted for safety reasons]\n</think>\n\n"
 
                 # Get token counts from response usage data
                 input_tokens = res.get("usage", {}).get("input_tokens", input_tokens)
