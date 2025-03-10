@@ -43,6 +43,7 @@ AVAILABLE_MODELS = [
     {"id": "gpt-4o-2024-08-06", "name": "gpt-4o-2024-08-06"},
     {"id": "gpt-4o-2024-11-20", "name": "gpt-4o-2024-11-20"},
     {"id": "gpt-4-turbo", "name": "gpt-4-turbo"},
+    {"id": "gpt-4.5-preview", "name": "gpt-4.5-preview"},
 ]
 
 DEFAULT_ENABLED_MODELS = ",".join([model["id"] for model in AVAILABLE_MODELS])

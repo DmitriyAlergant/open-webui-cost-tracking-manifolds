@@ -415,28 +415,7 @@ class Pipe:
                                                 }
                                                 yield f"data: {json.dumps(content_json)}\n\n"
                                                 
-                                                # Periodically update tokens and cost
-                                                current_time = time.time()
-                                                if current_time - last_update_time >= 1:
-                                                    generated_tokens += cost_tracking_manager.count_tokens(
-                                                        streamed_content_buffer
-                                                    )
-                                                    
-                                                    cost_tracking_manager.calculate_costs_update_status_and_persist(
-                                                        input_tokens=input_tokens,
-                                                        generated_tokens=generated_tokens,
-                                                        reasoning_tokens=reasoning_tokens,
-                                                        start_time=start_time,
-                                                        __event_emitter__=__event_emitter__,
-                                                        status="Streaming...",
-                                                        persist_usage=False,
-                                                        context_messages_count=len(messages)
-                                                    )
-                                                    
-                                                    streamed_content_buffer = ""
-                                                    last_update_time = current_time
-                                            
-                                            # Handle message delta event with usage information
+                                            # Handle final message delta event with usage information
                                             elif event_type == 'message_delta' and 'usage' in event_data:
                                                 # Update token counts if available
                                                 if 'output_tokens' in event_data.get('usage', {}):
@@ -465,6 +444,27 @@ class Pipe:
                                             elif event_type == 'message_stop':
                                                 stream_completed = True
                                                 yield "data: [DONE]\n\n"
+
+                                            # Periodically update tokens and cost - on all events
+                                            current_time = time.time()
+                                            if current_time - last_update_time >= 1:
+                                                generated_tokens += cost_tracking_manager.count_tokens(
+                                                    streamed_content_buffer
+                                                )
+                                                
+                                                cost_tracking_manager.calculate_costs_update_status_and_persist(
+                                                    input_tokens=input_tokens,
+                                                    generated_tokens=generated_tokens,
+                                                    reasoning_tokens=reasoning_tokens,
+                                                    start_time=start_time,
+                                                    __event_emitter__=__event_emitter__,
+                                                    status="Streaming...",
+                                                    persist_usage=False,
+                                                    context_messages_count=len(messages)
+                                                )
+                                                
+                                                streamed_content_buffer = ""
+                                                last_update_time = current_time
                                                 
                                         except json.JSONDecodeError:
                                             if self.valves.DEBUG:

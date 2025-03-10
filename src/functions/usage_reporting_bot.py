@@ -57,7 +57,7 @@ class Pipe:
 
         SQL_ASSISTANT_MODEL: str = Field(
             default="anthropic.claude-3-5-sonnet-20241022",
-            description="Model to use for SQL query generation",
+            description="Model to use for SQL generation from natural language questions",
         )
 
 
@@ -91,11 +91,26 @@ class Pipe:
         return False
         
 
+    def strip_markdown_formatting(self, text: str) -> str:
+        """
+        Strip markdown formatting from text, particularly bold (**) markers.
+        """
+        # Remove bold markers
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        # Remove any other markdown formatting if needed in the future
+        return text.strip()
+
     async def pipe(self, body: dict, __user__: dict) -> str:
-        command = get_last_user_message(body["messages"])
+        command = get_last_user_message(body["messages"]).strip()
+        # Strip any markdown formatting from the command
+        command = self.strip_markdown_formatting(command)
 
         if self.valves.DEBUG:
             print(f"usage-reporting-bot ({__user__['email']}): {command}")
+
+        # Replace /usage_costs with /usage_stats
+        if command.startswith("/usage_costs"):
+            command = "/usage_stats" + command[len("/usage_costs"):]
 
         if command == "/help":
             return self.print_help(__user__)
@@ -121,15 +136,17 @@ class Pipe:
             specific_user = match.group(1)
             days = int(match.group(2)) if match.group(2) else 30
 
-            if self.is_superuser(__user__) or specific_user == __user__["email"]:
-                return self.generate_single_user_report(days, specific_user)
+            is_admin = self.is_superuser(__user__)
+            if is_admin or specific_user == __user__["email"]:
+                return self.generate_single_user_report(days, specific_user, is_admin)
             else:
                 return "Sorry, this feature is only available to Admins"
 
         if match := re.match(r"/usage_stats(?:\s+(\d+)d)?", command):
             days = int(match.group(1)) if match.group(1) else 30
 
-            return self.generate_single_user_report(days, __user__["email"])
+            is_admin = self.is_superuser(__user__)
+            return self.generate_single_user_report(days, __user__["email"], is_admin)
 
         if command.startswith("/run_sql "):
             if self.is_superuser(__user__):
@@ -148,15 +165,15 @@ class Pipe:
     def print_help(self, __user__):
         help_message = (
             "**Available Commands**\n"
-            "* **/usage_stats 30d** my own usage stats for 30 days\n\n"
+            "* **/usage_stats 30d** or **/usage_costs 30d** my own usage stats for 30 days\n\n"
         )
         
         if self.is_superuser(__user__):
             help_message += (
                 "**Available Commands (Admins Only)**\n"
                 "* **/balance** Check current API balance\n"
-                "* **/usage_stats all 45d** stats by all users for 45 days\n"
-                "* **/usage_stats user@email.com** stats for the indicated user (default is 30 days)\n"
+                "* **/usage_stats all 45d** or **/usage_costs all 45d** stats by all users for 45 days\n"
+                "* **/usage_stats user@email.com** or **/usage_costs user@email.com** stats for the indicated user (default is 30 days)\n"
                 "* **/run_sql SELECT count(*) from usage_costs;** allows an admin to run arbitrary SQL SELECT from the database.\n  - For SQLite: use /run_sql PRAGMA table_info(usage_costs) to see available table columns\n  - For Postgres db: /run_sql SELECT * FROM information_schema.columns WHERE table_name = 'usage_costs'\n"
                 "* **/ask** Ask questions about usage in natural language. SQL will be generated automatically.\n"
             )
@@ -193,6 +210,7 @@ class Pipe:
                 cost_currency,
                 {date_function} as date,
                 SUM(total_cost) as total_cost,
+                SUM(COALESCE(display_cost, total_cost)) as display_cost,
                 SUM(input_tokens) as total_input_tokens,
                 SUM(output_tokens) as total_output_tokens
             FROM usage_costs
@@ -235,6 +253,7 @@ class Pipe:
                         "currency": row.cost_currency,
                         "date": row.date,
                         "total_cost": float(row.total_cost),
+                        "display_cost": float(row.display_cost),
                         "total_input_tokens": row.total_input_tokens,
                         "total_output_tokens": row.total_output_tokens,
                     }
@@ -286,29 +305,21 @@ class Pipe:
         return exchange_rates
 
     def generate_all_users_report(self, days: int):
-        """
-        Generate a usage report for all users.
-
-        :param days: Number of days to include in the report
-        :return: A formatted string report of usage stats for all users
-        """
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
 
         # Get usage stats for all users
-        stats = self.get_usage_stats(
-            user_email=None, start_date=start_date, end_date=end_date
-        )
+        stats = self.get_usage_stats(start_date=start_date, end_date=end_date)
 
         if not stats:
-            return f"No usage data found for any users in the last {days} days."
+            return f"No usage data found in the last {days} days."
 
         df = pd.DataFrame(stats)
 
         # Default currency to 'USD' if blank or null
         df['currency'] = df['currency'].fillna('USD').replace('', 'USD')
 
-        # Get unique currencies in data
+        # Get unique currencies in data and fetch exchange rates
         currencies = df['currency'].unique()
 
         if len(currencies) > 1 or 'USD' not in currencies:
@@ -316,76 +327,154 @@ class Pipe:
         else:
             exchange_rates = {'USD': 1.0}
 
-        # Total usage costs by currency
-        currency_totals = df.groupby("currency")["total_cost"].sum().round(2)
-
-        # Convert all totals to USD for sorting
-        usd_equivalent_totals = {
-            currency: total / exchange_rates.get(currency, 1.0)
-            for currency, total in currency_totals.items()
-        }
-
-        # Sort currencies by their USD equivalent value
-        sorted_currencies = sorted(
-            usd_equivalent_totals.keys(),
-            key=lambda x: usd_equivalent_totals[x],
-            reverse=True
-        )
-
-        # Prepare the report
-        report = f"## Usage Report for All Users\n"
-        report += f"### Period: {start_date.date()} to {end_date.date()}\n\n"
-        report += "#### Total Usage Costs:\n"
-
-        for currency in sorted_currencies:
-            total = currency_totals[currency]
-            if currency == "USD":
-                report += f"- $ **{total:.2f}**\n"
-            else:
-                report += f"- **{total:.2f} {currency}**\n"
-
-        # Top 20 users
-
-        # Convert costs to USD for ranking
+        # Convert costs to USD only for ranking purposes
         df['cost_for_ranking'] = df.apply(
             lambda row: row['total_cost'] / exchange_rates.get(row['currency'], 1.0),
             axis=1
         )
 
+        # Prepare the report
+        report = f"## Usage Report for All Users\n"
+        report += f"### Period: {start_date.date()} to {end_date.date()}\n\n"
+
+        # Total costs by currency
+        report += "#### Total Usage Costs:\n"
+        
+        # Group by currency and sum the costs
+        currency_totals = df.groupby("currency")[["total_cost", "display_cost"]].sum().round(2)
+        
+        for currency, row in currency_totals.iterrows():
+            total = row["total_cost"]
+            display_total = row["display_cost"]
+            
+            if currency == "USD":
+                report += f"- **{display_total:,.2f} {currency}** (Display) | **{total:,.2f} {currency}** (True)\n"
+            else:
+                report += f"- **{display_total:,.2f} {currency}** (Display) | **{total:,.2f} {currency}** (True)\n"
+
+        # Add total tokens information
+        total_input_tokens = df["total_input_tokens"].sum()
+        total_output_tokens = df["total_output_tokens"].sum()
+        report += "\n#### Total Tokens Used:\n"
+        report += f"- Input tokens:  **{total_input_tokens:,}**\n"
+        report += f"- Output tokens: **{total_output_tokens:,}**\n"
+
+        # Top 5 models by cost
+        report += "\n#### Top 5 Models by Cost:\n"
+        
+        # Group by model and currency, then sum costs
+        model_costs = df.groupby(['model', 'currency'])[['total_cost', 'display_cost', 'cost_for_ranking']].sum().reset_index()
+        
+        # Get top 5 models by USD-equivalent cost
+        top_models = model_costs.groupby('model')['cost_for_ranking'].sum().nlargest(5).index
+        top_model_data = model_costs[model_costs['model'].isin(top_models)]
+        
+        # Prepare headers for the table
+        headers = ["Model"]
+        for currency in currencies:
+            if currency == 'USD':
+                headers.append(f"$ (Display)")
+                headers.append(f"$ (True)")
+            else:
+                headers.append(f"{currency} (Display)")
+                headers.append(f"{currency} (True)")
+        
+        # Prepare rows for the table
+        rows = []
+        for model in top_models:
+            row_data = [model]
+            for currency in currencies:
+                model_currency_data = top_model_data[(top_model_data['model'] == model) & (top_model_data['currency'] == currency)]
+                if len(model_currency_data) > 0:
+                    cost = model_currency_data['total_cost'].sum()
+                    display_cost = model_currency_data['display_cost'].sum()
+                    
+                    if currency == 'USD':
+                        row_data.append(f"${display_cost:,.2f}" if display_cost > 0 else "")
+                        row_data.append(f"${cost:,.2f}" if cost > 0 else "")
+                    else:
+                        row_data.append(f"{display_cost:,.2f}" if display_cost > 0 else "")
+                        row_data.append(f"{cost:,.2f}" if cost > 0 else "")
+                else:
+                    row_data.append("")
+                    row_data.append("")
+            rows.append(row_data)
+        
+        # Render the table
+        col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *rows)]
+        
+        table = "```\n"  # Start code block for fixed-width formatting
+        table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
+        table += "-|-".join("-" * width for width in col_widths) + "\n"
+        for row in rows:
+            table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
+        table += "```\n"  # End code block
+        
+        report += table
+        
+        # Top 20 users by cost
+        report += "\n#### Top 20 Users by Cost:\n"
+        
         # Separate costs per currency for reporting
         for currency in currencies:
-            df[f'{currency.lower()}_cost'] = df.apply(
+            df[f'{currency.lower()}_display_cost'] = df.apply(
+                lambda row: row['display_cost'] if row['currency'] == currency else 0,
+                axis=1
+            )
+            df[f'{currency.lower()}_total_cost'] = df.apply(
                 lambda row: row['total_cost'] if row['currency'] == currency else 0,
                 axis=1
             )
 
         # Get user totals and select top 20 users
-
-        agg_dict = {f'{currency.lower()}_cost': 'sum' for currency in currencies}
+        agg_dict = {}
+        for currency in currencies:
+            agg_dict[f'{currency.lower()}_display_cost'] = 'sum'
+            agg_dict[f'{currency.lower()}_total_cost'] = 'sum'
+        agg_dict['total_input_tokens'] = 'sum'
+        agg_dict['total_output_tokens'] = 'sum'
         agg_dict['cost_for_ranking'] = 'sum'
 
         user_totals = df.groupby("user_email").agg(agg_dict).round(2)
-
         top_users = user_totals.nlargest(20, "cost_for_ranking")
 
-        # Prepare data for table rendering
-        
-        headers = ["User"] + [currency.upper() for currency in currencies if (top_users[f'{currency.lower()}_cost'] > 0).any()]
+        # Prepare headers for the table - only include currencies that have non-zero values
+        headers = ["User"]
+        for currency in currencies:
+            if (top_users[f'{currency.lower()}_total_cost'] > 0).any():
+                if currency == 'USD':
+                    headers.extend([f"$ (Display)", f"$ (True)"])
+                else:
+                    headers.extend([f"{currency} (Display)", f"{currency} (True)"])
+        headers.extend(["Input Tokens", "Output Tokens"])
+
+        # Prepare rows for the table
         rows = []
         for user, row in top_users.iterrows():
             row_data = [user]
             for currency in currencies:
-                if (top_users[f'{currency.lower()}_cost'] > 0).any():
-                    cost = row[f'{currency.lower()}_cost']
+                if (top_users[f'{currency.lower()}_total_cost'] > 0).any():
+                    display_cost = row[f'{currency.lower()}_display_cost']
+                    total_cost = row[f'{currency.lower()}_total_cost']
                     if currency == 'USD':
-                        row_data.append(f"${cost:.2f}")
+                        row_data.extend([
+                            f"${display_cost:,.2f}" if display_cost > 0 else "",
+                            f"${total_cost:,.2f}" if total_cost > 0 else ""
+                        ])
                     else:
-                        row_data.append(f"{cost:.2f} {currency}")
+                        row_data.extend([
+                            f"{display_cost:,.2f}" if display_cost > 0 else "",
+                            f"{total_cost:,.2f}" if total_cost > 0 else ""
+                        ])
+            row_data.extend([
+                f"{row['total_input_tokens']:,}",
+                f"{row['total_output_tokens']:,}"
+            ])
             rows.append(row_data)
 
-        # Render an ASCII table
+        # Render the table
         col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *rows)]
-
+        
         table = "```\n"  # Start code block for fixed-width formatting
         table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
         table += "-|-".join("-" * width for width in col_widths) + "\n"
@@ -393,12 +482,11 @@ class Pipe:
             table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
         table += "```\n"  # End code block
 
-        report += "\n#### Top 20 Users by Cost:\n"
         report += table
 
         return report
 
-    def generate_single_user_report(self, days: int, user_email: str):
+    def generate_single_user_report(self, days: int, user_email: str, is_admin: bool = False):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
 
@@ -417,7 +505,6 @@ class Pipe:
         df['currency'] = df['currency'].fillna('USD').replace('', 'USD')
 
         # Get unique currencies in data and fetch exchange rates
-
         currencies = df['currency'].unique()
 
         if len(currencies) > 1 or 'USD' not in currencies:
@@ -425,34 +512,48 @@ class Pipe:
         else:
             exchange_rates = {'USD': 1.0}
 
-        # Group by currency and sum the total cost
+        # Group by currency and sum the total cost and display cost
         currency_totals = df.groupby("currency")["total_cost"].sum().round(2)
+        currency_display_totals = df.groupby("currency")["display_cost"].sum().round(2)
 
         # Prepare the report
-        report = f"## Usage Report for {user_email}\n"
-        report += f"### Period: {start_date.date()} to {end_date.date()}\n\n"
-        report += "#### Total Usage Costs:\n"
+        report = [
+            f"## Usage Report for {user_email}",
+            f"### Period: {start_date.date()} to {end_date.date()}",
+            "",
+            "#### Usage Costs:",
+            ""
+        ]
 
-        for currency, total in currency_totals.items():
-            if currency == "USD":
-                report += f"- $ **{total:.2f}**\n"
+        # Sort currencies to ensure consistent order (USD first, then others alphabetically)
+        sorted_currencies = sorted(currency_totals.index, key=lambda x: (x != 'USD', x))
+
+        for currency in sorted_currencies:
+            total = currency_totals[currency]
+            display_total = currency_display_totals[currency]
+            
+            if is_admin:
+                report.append(f"- **{display_total:,.2f} {currency}** (Display) | **USD {total:,.2f} {currency}** (True)")
             else:
-                report += f"- **{total:.2f} {currency}**\n"
+                report.append(f"- **{display_total:,.2f} {currency}**")
 
         # Add total tokens information
         total_input_tokens = df["total_input_tokens"].sum()
         total_output_tokens = df["total_output_tokens"].sum()
-        report += "\n#### Total Tokens Used:\n"
-        report += f"- Input tokens:  **{total_input_tokens:,}**\n"
-        report += f"- Output tokens: **{total_output_tokens:,}**\n"
-
+        report.extend([
+            "",
+            "#### Total Tokens Used:",
+            f"- Input tokens:  **{total_input_tokens:,}**",
+            f"- Output tokens: **{total_output_tokens:,}**",
+            ""
+        ])
 
         # TOP 5 MODELS BY COST
-        report += "\n#### Top 5 Models by Cost:\n"
+        report.append("#### Top 5 Models by Cost:")
+        report.append("")
 
         # Group data and select top 5 models by USD cost (currency-converted)
-
-        model_costs = df.groupby(['model', 'currency'])['total_cost'].sum().reset_index()
+        model_costs = df.groupby(['model', 'currency'])[['total_cost', 'display_cost']].sum().reset_index()
 
         model_costs['cost_usd'] = model_costs.apply(
             lambda row: row['total_cost'] / exchange_rates.get(row['currency'], 1.0),
@@ -464,32 +565,69 @@ class Pipe:
         top_model_data = model_costs[model_costs['model'].isin(top_models)]
 
         # Prepare data for table rendering
+        if is_admin:
+            headers = ["Model"]
+            for currency in sorted_currencies:  # Use sorted currencies for consistent order
+                if currency == 'USD':
+                    headers.append(f"$ (Display)")
+                    headers.append(f"$ (True)")
+                else:
+                    headers.append(f"{currency} (Display)")
+                    headers.append(f"{currency} (True)")
+        else:
+            headers = ["Model"]
+            for currency in sorted_currencies:  # Use sorted currencies for consistent order
+                if currency == 'USD':
+                    headers.append("$")
+                else:
+                    headers.append(f"{currency}")
 
-        headers = ["Model"] + list(currencies)
         rows = []
         for model in top_models:
             row_data = [model]
-            for currency in currencies:
-                cost = top_model_data[(top_model_data['model'] == model) & (top_model_data['currency'] == currency)]['total_cost'].sum()
-                if currency == 'USD':
-                    row_data.append(f"${cost:.2f}" if cost > 0 else "")
+            for currency in sorted_currencies:  # Use sorted currencies for consistent order
+                model_currency_data = top_model_data[(top_model_data['model'] == model) & (top_model_data['currency'] == currency)]
+                if len(model_currency_data) > 0:
+                    cost = model_currency_data['total_cost'].sum()
+                    display_cost = model_currency_data['display_cost'].sum()
+                    
+                    if is_admin:
+                        if currency == 'USD':
+                            row_data.append(f"${display_cost:,.2f}" if display_cost > 0 else "")
+                            row_data.append(f"${cost:,.2f}" if cost > 0 else "")
+                        else:
+                            row_data.append(f"{display_cost:,.2f}" if display_cost > 0 else "")
+                            row_data.append(f"{cost:,.2f}" if cost > 0 else "")
+                    else:
+                        if currency == 'USD':
+                            row_data.append(f"${display_cost:,.2f}" if display_cost > 0 else "")
+                        else:
+                            row_data.append(f"{display_cost:,.2f}" if display_cost > 0 else "")
                 else:
-                    row_data.append(f"{cost:.2f} {currency}" if cost > 0 else "")
+                    if is_admin:
+                        row_data.append("")
+                        row_data.append("")
+                    else:
+                        row_data.append("")
             rows.append(row_data)
 
         # Render an ASCII table
-        col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *rows)]
+        if rows:  # Only add table if we have data
+            col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *rows)]
+            
+            table_lines = [
+                "```",
+                " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)),
+                "-|-".join("-" * width for width in col_widths)
+            ]
+            
+            for row in rows:
+                table_lines.append(" | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)))
+            
+            table_lines.append("```")
+            report.extend(table_lines)
 
-        table = "```\n"  # Start code block for fixed-width formatting
-        table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
-        table += "-|-".join("-" * width for width in col_widths) + "\n"
-        for row in rows:
-            table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
-        table += "```\n"  # End code block
-
-        report += table
-
-        return report
+        return "\n".join(report)
     
     def run_sql_command(self, sql_query):
         # Sanitize the query
@@ -532,7 +670,19 @@ class Pipe:
                 formatted_data = []
                 total_rows = len(rows)
                 for row in rows[:max_print_rows]:
-                    formatted_row = [str(getattr(row, col, '')) for col in headers]
+                    formatted_row = []
+                    for col in headers:
+                        value = getattr(row, col, '')
+                        # Add thousands separator for numeric values
+                        if isinstance(value, (int, float)) and not isinstance(value, bool):
+                            if isinstance(value, int):
+                                formatted_value = f"{value:,}"
+                            else:
+                                # For floats, keep decimal precision
+                                formatted_value = f"{value:,.2f}" if value == int(value) else f"{value:,}"
+                        else:
+                            formatted_value = str(value)
+                        formatted_row.append(formatted_value)
                     formatted_data.append(formatted_row)
 
                 # Calculate column widths
