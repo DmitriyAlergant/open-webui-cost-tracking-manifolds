@@ -73,6 +73,8 @@ Other pipe functions in this repo are referencing these shared modules by their 
    #Get your API key in OpenWebUI User Settings -> Account -> API Keys
    OPENWEBUI_API_KEY=sk-....  
    ```
+
+   **NOTE:** If API Key Authentication in your Open-WebUI instance is disabled or restricted by endpoints, you can use JWT Token instead (just use the token value as OPENWEBUI_API_KEY). You can obtain your current JWT token from the Browser's Developer Tools after logging into Open WebUI.  Application -> Cookies -> (your Open WebUI URL) -> "token" cookie value
    
 **5. Deploy pipe functions and modules to OpenWebUI (except Pricing Data):**
 
@@ -82,7 +84,7 @@ Other pipe functions in this repo are referencing these shared modules by their 
 **6. Separately deploy one more function (Pricing Data module):**
 
    ```bash
-   python deploy_to_openwebui.py src/functions/data/module_usage_tracking_pricing_data.py
+   python deploy_to_openwebui.py src/functions/pricing-data-module/module_usage_tracking_pricing_data.py
    ```
 
 **7. In OpenWebUI Enable all functions and configure Valves**
