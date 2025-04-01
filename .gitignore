@@ -56,3 +56,5 @@ vendor/
 *~
 
 .venv/
+
+src/functions/pricing-data-module/module_usage_tracking_pricing_data_llm.py
