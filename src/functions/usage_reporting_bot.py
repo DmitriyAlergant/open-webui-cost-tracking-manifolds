@@ -31,6 +31,9 @@ from open_webui.utils.misc import get_messages_content, get_last_user_message
 
 class Config:
     DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
+    INFO_PREFIX = "INFO:     " + __name__ + " -"
+    WARNING_PREFIX = "WARNING:  " + __name__ + " -"
+    ERROR_PREFIX = "ERROR:    " + __name__ + " -"
     DEBUG = True
 
 class Pipe:
@@ -269,7 +272,7 @@ class Pipe:
 
         except Exception as e:
             print(
-                f"{Config.INFO_PREFIX} Database error in get_total_costs_by_user: {e}"
+                f"{Config.ERROR_PREFIX} Database error in get_total_costs_by_user: {e}"
             )
             raise
 

@@ -59,10 +59,6 @@ class Pipe:
             default="",
             description="Required API key to retrieve the model list.",
         )
-        ENABLED_MODELS: str = Field(
-            default=DEFAULT_ENABLED_MODELS,
-            description="List of enabled model IDs",
-        )
         DEBUG: bool = Field(default=False, description="Display debugging messages")
 
     def __init__(self):
@@ -86,11 +82,7 @@ class Pipe:
         )
 
     def pipes(self):
-        enabled_models = [
-            model
-            for model in AVAILABLE_MODELS
-            if model["id"] in self.valves.ENABLED_MODELS.split(",")
-        ]
+        enabled_models = [ model for model in AVAILABLE_MODELS ]
         return enabled_models
 
     async def pipe(
