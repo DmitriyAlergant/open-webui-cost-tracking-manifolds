@@ -22,8 +22,8 @@ AVAILABLE_MODELS = [
     {"id": "gpt-4.1", "name": "gpt-4.1"},
     {"id": "gpt-4.1-mini", "name": "gpt-4.1-mini"},
     {"id": "gpt-4.1-nano", "name": "gpt-4.1-nano"},
-    {"id": "gpt-4o", "name": "gpt-4o"},
     {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest"},
+    {"id": "gpt-4o", "name": "gpt-4o"},
     {"id": "gpt-4o-2024-05-13", "name": "gpt-4o-2024-05-13"},
     {"id": "gpt-4o-2024-08-06", "name": "gpt-4o-2024-08-06"},
     {"id": "gpt-4o-2024-11-20", "name": "gpt-4o-2024-11-20"},
@@ -75,31 +75,13 @@ class Pipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
-
-        # Store the original model id before potential modifications
-        original_model_id = body["model"]
-
-        # Find model configuration
-        model_id = body["model"].split(".")[-1]
-
-        model_config = next(
-            (model for model in self.pipes() if model["id"] == model_id), None
-        )
-
-        if model_config and "base_model" in model_config:
-
-            if "reasoning_effort" in model_config:
-                body["reasoning_effort"] = model_config["reasoning_effort"]
-            body["model"] = model_config["base_model"]
-
-        if "o1" in body["model"] and body["messages"][0]["role"] == "system":
+        
+        # See https://community.openai.com/t/developer-role-not-accepted-for-o1-o1-mini-o3-mini/1110750/6
+        if body["messages"][0]["role"] == "system" and ("o1-mini" in body["model"] or "o1-preview" in body["model"]):
             print(
-                "OpenAI Manifold: o1 models do not currently support System message. Converting System Prompt to User role."
+                "OpenAI Manifold: this model do not currently support System message. Converting System Prompt to User role."
             )
             body["messages"][0]["role"] = "user"
-
-        # Add original model ID to metadata
-        __metadata__["user_requested_model_id"] = original_model_id
 
         return await self.get_openai_pipe().chat_completion(
             body=body,
