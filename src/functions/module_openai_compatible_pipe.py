@@ -85,8 +85,11 @@ class OpenAIPipe:
             raise Exception(f"Module {cost_tracker_module_name} is not loaded")
         cost_tracker_module = sys.modules[cost_tracker_module_name]
 
+        # Use the user-requested model ID from metadata if available, otherwise fallback to body["model"]
+        model_for_cost_tracking = __metadata__.get("user_requested_model_id", body["model"])
+
         cost_tracking_manager = cost_tracker_module.CostTrackingManager(
-            model=body["model"], 
+            model=model_for_cost_tracking, 
             __user__=__user__, 
             __metadata__=__metadata__, 
             task=__task__, 

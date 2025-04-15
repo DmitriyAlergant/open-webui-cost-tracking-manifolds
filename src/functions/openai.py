@@ -16,27 +16,12 @@ MODULE_OPENAI_COMPATIBLE_PIPE = "function_module_openai_compatible_pipe"
 
 AVAILABLE_MODELS = [
     {"id": "o1", "name": "o1"},
-    {"id": "o1-preview", "name": "o1-preview"},
-    {
-        "id": "o3-mini-low",
-        "name": "o3-mini (Low Effort)",
-        "base_model": "o3-mini",
-        "reasoning_effort": "low",
-    },
-    {
-        "id": "o3-mini-medium",
-        "name": "o3-mini (Medium Effort)",
-        "base_model": "o3-mini",
-        "reasoning_effort": "medium",
-    },
-    {
-        "id": "o3-mini-high",
-        "name": "o3-mini (High Effort)",
-        "base_model": "o3-mini",
-        "reasoning_effort": "high",
-    },
+    {"id": "o3-mini", "name": "o3-mini"},
     {"id": "o1-mini", "name": "o1-mini"},
     {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
+    {"id": "gpt-4.1", "name": "gpt-4.1"},
+    {"id": "gpt-4.1-mini", "name": "gpt-4.1-mini"},
+    {"id": "gpt-4.1-nano", "name": "gpt-4.1-nano"},
     {"id": "gpt-4o", "name": "gpt-4o"},
     {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest"},
     {"id": "gpt-4o-2024-05-13", "name": "gpt-4o-2024-05-13"},
@@ -45,9 +30,6 @@ AVAILABLE_MODELS = [
     {"id": "gpt-4-turbo", "name": "gpt-4-turbo"},
     {"id": "gpt-4.5-preview", "name": "gpt-4.5-preview"},
 ]
-
-DEFAULT_ENABLED_MODELS = ",".join([model["id"] for model in AVAILABLE_MODELS])
-
 
 class Pipe:
     class Valves(BaseModel):
@@ -94,6 +76,9 @@ class Pipe:
         __task__,
     ) -> Union[str, StreamingResponse]:
 
+        # Store the original model id before potential modifications
+        original_model_id = body["model"]
+
         # Find model configuration
         model_id = body["model"].split(".")[-1]
 
@@ -112,6 +97,9 @@ class Pipe:
                 "OpenAI Manifold: o1 models do not currently support System message. Converting System Prompt to User role."
             )
             body["messages"][0]["role"] = "user"
+
+        # Add original model ID to metadata
+        __metadata__["user_requested_model_id"] = original_model_id
 
         return await self.get_openai_pipe().chat_completion(
             body=body,
