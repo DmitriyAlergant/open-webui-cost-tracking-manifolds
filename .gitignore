@@ -59,6 +59,5 @@ vendor/
 
 src/functions/pricing-data-module/*
 
-src/functions/aimediator.py
-
-upload_llm_models.py
+src/functions/aim*
+upload_*.sh
