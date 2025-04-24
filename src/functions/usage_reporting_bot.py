@@ -638,9 +638,9 @@ class Pipe:
         print(f"usage_reporting_bot SQL QUERY: {sql_query}")
 
         if not re.match(r'^(SELECT|PRAGMA TABLE_)', sql_query, re.IGNORECASE):
-            err_msg = "Error: Query must start with SELECT or PRAGMA TABLE_LIST() or PRAGMA TABLE_INFO(table)"
-            print(f"usage_reporting_bot run_sql | {err_msg}")
-            return f"{err_msg}"
+             err_msg = "Error: Query must start with SELECT or PRAGMA TABLE_LIST() or PRAGMA TABLE_INFO(table)"
+             print(f"usage_reporting_bot run_sql | {err_msg}")
+             return f"{err_msg}"
         
         if not sql_query.endswith(';'):
             sql_query += ';'
@@ -654,64 +654,89 @@ class Pipe:
         try:
             with get_db() as db:
                 result = db.execute(text(sql_query))
-                rows = result.fetchall()
+                
+                # Check if the query returns rows before trying to fetch
+                if result.returns_rows:
+                    rows = result.fetchall()
 
-                if not rows:
-                    msg =  "Query executed successfully, but returned no results."
-                    print(f"usage_reporting_bot run_sql |  {msg}")
-                    return f"{msg}"
+                    if not rows:
+                        msg = "Query executed successfully, but returned no results."
+                        print(f"usage_reporting_bot run_sql |  {msg}")
+                        return f"{msg}"
 
-                # Get column names
-                if hasattr(result, 'keys'):
-                    headers = result.keys()
-                else:
-                    headers = rows[0]._fields
+                    # Get column names
+                    if hasattr(result, 'keys'):
+                        headers = result.keys()
+                    else: # Fallback for older SQLAlchemy versions or specific drivers
+                        headers = rows[0]._fields if rows and hasattr(rows[0], '_fields') else []
 
-                max_print_rows = int(self.valves.MAX_SQL_ROWS)
+                    max_print_rows = int(self.valves.MAX_SQL_ROWS)
 
-                # Format data
-                formatted_data = []
-                total_rows = len(rows)
-                for row in rows[:max_print_rows]:
-                    formatted_row = []
-                    for col in headers:
-                        value = getattr(row, col, '')
-                        # Add thousands separator for numeric values
-                        if isinstance(value, (int, float)) and not isinstance(value, bool):
-                            if isinstance(value, int):
-                                formatted_value = f"{value:,}"
+                    # Format data
+                    formatted_data = []
+                    total_rows = len(rows)
+                    for row in rows[:max_print_rows]:
+                        formatted_row = []
+                        for col in headers:
+                            value = getattr(row, col, '')
+                            # Add thousands separator for numeric values
+                            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                                if isinstance(value, int):
+                                    formatted_value = f"{value:,}"
+                                else:
+                                    # For floats, keep decimal precision
+                                    formatted_value = f"{value:,.2f}" # Keep .2f precision
                             else:
-                                # For floats, keep decimal precision
-                                formatted_value = f"{value:,.2f}" if value == int(value) else f"{value:,}"
+                                formatted_value = str(value)
+                            formatted_row.append(formatted_value)
+                        formatted_data.append(formatted_row)
+
+                    # Calculate column widths
+                    col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *formatted_data)] if headers else []
+
+                    # Create a markdown table
+                    table = "```\n"  # Start code block for fixed-width formatting
+                    if headers:
+                        table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
+                        table += "-|-".join("-" * width for width in col_widths) + "\n"
+                    else:
+                        table += "(No column headers returned)\n"
+                        
+                    for row in formatted_data:
+                        if headers:
+                             table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
                         else:
-                            formatted_value = str(value)
-                        formatted_row.append(formatted_value)
-                    formatted_data.append(formatted_row)
+                             table += str(row) + "\n" # Simple representation if no headers
 
-                # Calculate column widths
-                col_widths = [max(len(str(x)) for x in col) for col in zip(headers, *formatted_data)]
+                    table += "```\n"  # End code block
 
-                # Create a markdown table
-                table = "```\n"  # Start code block for fixed-width formatting
-                table += " | ".join(f"{header:<{width}}" for header, width in zip(headers, col_widths)) + "\n"
-                table += "-|-".join("-" * width for width in col_widths) + "\n"
-                for row in formatted_data:
-                    table += " | ".join(f"{cell:<{width}}" for cell, width in zip(row, col_widths)) + "\n"
-                table += "```\n"  # End code block
+                    # Add truncation notice if necessary
+                    if total_rows > max_print_rows:
+                        table += f"\n*Note: Results truncated. Showing {max_print_rows} rows out of {total_rows} total rows.*"
 
-                # Add truncation notice if necessary
-                if total_rows > max_print_rows:
-                    table += f"\n*Note: Results truncated. Showing {max_print_rows} rows out of {total_rows} total rows.*"
+                    print(f"usage_reporting_bot run_sql | returned query results {len(rows)} rows")
 
-                print(f"usage_reporting_bot run_sql |  returned query results {len(rows)} rows")
+                    return f"Query results:\n\n{table}"
+                
+                else:
+                    # For non-SELECT statements (UPDATE, INSERT, DELETE etc.) or SELECTs that return no rows by design
+                    db.commit() # Make sure to commit changes for DML
+                    msg = "Query executed successfully. No rows returned (this is expected for non-SELECT queries or queries with no matching results)."
+                    print(f"usage_reporting_bot run_sql | {msg}")
+                    return msg
 
-                return f"Query results:\n\n{table}"
 
         except Exception as e:
             _, _, tb = sys.exc_info()
             line_number = tb.tb_lineno
             print(f"usage_reporting_bot run_sql | Error on line {line_number}: {e}")
-            raise e
+            # Optionally, try to rollback in case of error during DML
+            try:
+                with get_db() as db_rollback:
+                    db_rollback.rollback()
+            except Exception as rollback_e:
+                print(f"usage_reporting_bot run_sql | Error during rollback: {rollback_e}")
+            return f"Error executing query: {e}"
 
     def get_balance(self) -> str:
         if not self.valves.BALANCE_API_KEY:

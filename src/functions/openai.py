@@ -16,12 +16,13 @@ MODULE_OPENAI_COMPATIBLE_PIPE = "function_module_openai_compatible_pipe"
 
 AVAILABLE_MODELS = [
     {"id": "o1", "name": "o1"},
+    {"id": "o4-mini", "name": "o4-mini"},
     {"id": "o3-mini", "name": "o3-mini"},
     {"id": "o1-mini", "name": "o1-mini"},
     {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
-    # {"id": "gpt-4.1", "name": "gpt-4.1"},             # TBD add to pricing module
-    # {"id": "gpt-4.1-mini", "name": "gpt-4.1-mini"},   # TBD add to pricing module
-    # {"id": "gpt-4.1-nano", "name": "gpt-4.1-nano"},   # TBD add to pricing module
+    {"id": "gpt-4.1", "name": "gpt-4.1"},            
+    {"id": "gpt-4.1-mini", "name": "gpt-4.1-mini"},  
+    {"id": "gpt-4.1-nano", "name": "gpt-4.1-nano"},   
     {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest"},
     {"id": "gpt-4o", "name": "gpt-4o"},
     {"id": "gpt-4o-2024-05-13", "name": "gpt-4o-2024-05-13"},

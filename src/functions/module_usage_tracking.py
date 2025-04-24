@@ -620,7 +620,7 @@ class CostTrackingManager:
         token_str = " | ".join(token_parts) if token_parts else ""
 
         status_parts = [
-            f"{processing_time:.2f}s" if start_time else "",
+            f"{processing_time:.2f}s" if (start_time and  status in ("Completed", "Stopped")) else "",
             token_str if token_str else "",
             f"{cost_str}" if cost_str else "",
             status if status else "",
@@ -628,18 +628,22 @@ class CostTrackingManager:
 
         status_message = " | ".join(filter(None, status_parts))
 
-        await __event_emitter__(
-            {
-                "type": "status",
-                "data": {
-                    "description": status_message,
-                    "done": is_final,
-                },
-            }
-        )
+        # Only emit event if status is initial or final
+        should_emit = status in ("Requested...", "Completed", "Stopped", "")
+
+        if should_emit:
+            await __event_emitter__(
+                {
+                    "type": "status",
+                    "data": {
+                        "description": status_message,
+                        "done": is_final,
+                    },
+                }
+            )
 
         if self.DEBUG:
-            print(f"{Config.DEBUG_PREFIX} status string update: {status_message}")
+            print(f"{Config.DEBUG_PREFIX} status string update (emitted: {should_emit}): {status_message}")
 
     def count_tokens(self, message_content: str) -> int:
         return self.cost_calculation_manager.count_tokens(message_content)
