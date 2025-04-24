@@ -132,21 +132,17 @@ class Pipe:
         reasoning_effort = body.pop("reasoning_effort", None)
         thinking_params = {}
         max_tokens_override = None
-        force_temperature = False
 
         if reasoning_effort:
             if reasoning_effort == "low":
-                thinking_params = {"type": "enabled", "budget_tokens": 4000}
-                max_tokens_override = 16384 # Based on previous claude-3-7-sonnet-thinking-small
-                force_temperature = 1
+                thinking_params = {"type": "enabled", "budget_tokens": 8000}
+                max_tokens_override = 16384 
             elif reasoning_effort == "medium":
-                thinking_params = {"type": "enabled", "budget_tokens": 16000}
-                max_tokens_override = 64000 # Based on previous claude-3-7-sonnet-thinking-medium
-                force_temperature = 1
+                thinking_params = {"type": "enabled", "budget_tokens": 24000}
+                max_tokens_override = 64000 
             elif reasoning_effort == "high":
-                thinking_params = {"type": "enabled", "budget_tokens": 64000}
-                max_tokens_override = 128000 # Based on previous claude-3-7-sonnet-thinking-high
-                force_temperature = 1
+                thinking_params = {"type": "enabled", "budget_tokens": 48000}
+                max_tokens_override = 64000
             else:
                 print(f"{self.debug_prefix} Unknown reasoning_effort: {reasoning_effort}. Ignoring.")
 
@@ -195,7 +191,7 @@ class Pipe:
         payload = {
             "model": model_id,
             "messages": processed_messages,
-            **({"max_tokens": max_tokens_override} if max_tokens_override else ({"max_tokens": body["max_tokens"]} if "max_tokens" in body else {})),
+            **({"max_tokens": max_tokens_override} if max_tokens_override else ({"max_tokens": body["max_tokens"]} if "max_tokens" in body else {"max_tokens": 16384})),
             "stop_sequences": body.get("stop", []),
             **({"system": str(system_message)} if system_message else {}),
             "stream": body.get("stream", False),
@@ -256,6 +252,9 @@ class Pipe:
                     start_time = time.time()
                     last_update_time = 0
                     stream_completed = False
+                    thinking_content_buffer = ""  # Buffer for thinking content
+                    reasoning_tokens = 0  # Accumulator for reasoning tokens
+                    is_thinking_block = False # Flag to track if we are inside a thinking block
 
                     try:
 
@@ -264,34 +263,56 @@ class Pipe:
                         async with anthropic_client.messages.stream(
                             **payload
                         ) as stream:
-                            async for content in stream.text_stream:
+                            # Use the async iterator directly
+                            async for event in stream:
+                                if event.type == "content_block_start":
+                                    if event.content_block.type == "thinking":
+                                        is_thinking_block = True
+                                        # Yield opening <think> tag
+                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '<think>'}}]})}\n\n"
+                                    elif event.content_block.type == "text":
+                                        is_thinking_block = False
+                                    # Ignore redacted_thinking for now
 
-                                # Buffer content for costs calculation (once a second
+                                elif event.type == "content_block_delta":
+                                    if event.delta.type == "thinking_delta":
+                                        thinking_text = event.delta.thinking
+                                        # Append to thinking buffer for token counting
+                                        thinking_content_buffer += thinking_text
+                                        # Yield thinking content delta
+                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': thinking_text}}]})}\n\n"
+                                    elif event.delta.type == "text_delta":
+                                        text = event.delta.text
+                                        # Append to regular buffer for token counting
+                                        streamed_content_buffer += text
+                                        # Yield regular content delta
+                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': text}}]})}\n\n"
 
-                                streamed_content_buffer += content
+                                elif event.type == "content_block_stop":
+                                    # Check if the stopped block was a thinking block
+                                    # We rely on the last content_block_start setting is_thinking_block correctly
+                                    # Note: Anthropic SDK doesn't explicitly link stop to start type easily here,
+                                    # so this assumes blocks don't interleave deltas without start/stop.
+                                    # A more robust solution might track indices if needed.
+                                    if is_thinking_block:
+                                        # Yield closing </think> tag
+                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '</think>'}}]})}\n\n"
+                                        is_thinking_block = False # Reset flag
 
-                                # Return emulating an SSE stream
-
-                                content_json = {
-                                    "choices": [
-                                        {"index": 0, "delta": {"content": content}}
-                                    ]
-                                }
-                                yield f"data: {json.dumps(content_json)}\n\n"
-
+                                # Periodic update for cost tracking (every second)
                                 current_time = time.time()
                                 if current_time - last_update_time >= 1:
+                                    # Count tokens generated in the last second
+                                    current_generated = cost_tracking_manager.count_tokens(streamed_content_buffer)
+                                    current_reasoning = cost_tracking_manager.count_tokens(thinking_content_buffer)
 
-                                    generated_tokens += (
-                                        cost_tracking_manager.count_tokens(
-                                            streamed_content_buffer
-                                        )
-                                    )
+                                    generated_tokens += current_generated
+                                    reasoning_tokens += current_reasoning
 
                                     cost_tracking_manager.calculate_costs_update_status_and_persist(
                                         input_tokens=input_tokens,
                                         generated_tokens=generated_tokens,
-                                        reasoning_tokens=None,
+                                        reasoning_tokens=reasoning_tokens, # Pass reasoning tokens
                                         start_time=start_time,
                                         __event_emitter__=__event_emitter__,
                                         status="Streaming...",
@@ -299,9 +320,12 @@ class Pipe:
                                         context_messages_count=len(messages)
                                     )
 
+                                    # Clear buffers after counting
                                     streamed_content_buffer = ""
+                                    thinking_content_buffer = ""
                                     last_update_time = current_time
 
+                            # After loop completes normally
                             stream_completed = True
                             yield "data: [DONE]\n\n"
 
@@ -310,32 +334,39 @@ class Pipe:
                             print(
                                 "DEBUG Anthropic stream_response wrapper... aborted by client"
                             )
+                        stream_completed = False # Mark as stopped if aborted
                     except Exception as e:
                         _, _, tb = sys.exc_info()
                         line_number = tb.tb_lineno
-                        print(f"Error on line {line_number}: {e}")
-                        raise e
+                        print(f"Error processing stream on line {line_number}: {e}")
+                        stream_completed = False # Mark as stopped on error
+                        yield f"data: {json.dumps({'error': str(e)})}\n\n" # Send error to client if possible
+                        yield "data: [DONE]\n\n" # Still need to send DONE for OpenWebUI
+                        # Re-raise the exception to be caught by the outer handler if needed
+                        # raise e # Commented out to allow final cost update
 
                     finally:
+                        # Final token count for any remaining buffer content
+                        final_generated = cost_tracking_manager.count_tokens(streamed_content_buffer)
+                        final_reasoning = cost_tracking_manager.count_tokens(thinking_content_buffer)
 
-                        generated_tokens += cost_tracking_manager.count_tokens(
-                            streamed_content_buffer
-                        )
+                        generated_tokens += final_generated
+                        reasoning_tokens += final_reasoning
 
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
                             input_tokens=input_tokens,
                             generated_tokens=generated_tokens,
-                            reasoning_tokens=None,
+                            reasoning_tokens=reasoning_tokens, # Pass final reasoning tokens
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
-                            persist_usage=True,
+                            persist_usage=True, # Persist final usage
                             context_messages_count=len(messages)
                         )
 
                         if self.valves.DEBUG:
                             print(
-                                f"DEBUG Finalized stream (completed: {stream_completed})"
+                                f"DEBUG Finalized stream (completed: {stream_completed}, generated: {generated_tokens}, reasoning: {reasoning_tokens})"
                             )
 
                 return StreamingResponse(
@@ -373,7 +404,7 @@ class Pipe:
                 cost_tracking_manager.calculate_costs_update_status_and_persist(
                     input_tokens=input_tokens,
                     generated_tokens=generated_tokens,
-                    reasoning_tokens=None,
+                    reasoning_tokens=None, # Batch mode doesn't explicitly track reasoning tokens here yet
                     start_time=start_time,
                     __event_emitter__=__event_emitter__,
                     status="Completed",

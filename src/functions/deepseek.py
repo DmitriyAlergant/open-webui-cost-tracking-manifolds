@@ -1,5 +1,5 @@
 """
-title: OpenAI Manifold
+title: DeepSeek Manifold
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
@@ -8,33 +8,22 @@ license: MIT
 """
 
 from pydantic import BaseModel, Field
+
 from fastapi.responses import StreamingResponse
+
 from typing import Union, Any, Awaitable, Callable
+
 import sys
+
 
 MODULE_OPENAI_COMPATIBLE_PIPE = "function_module_openai_compatible_pipe"
 
-AVAILABLE_MODELS = [
-    {"id": "o1", "name": "o1"},
-    {"id": "o3-mini", "name": "o3-mini"},
-    {"id": "o1-mini", "name": "o1-mini"},
-    {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
-    # {"id": "gpt-4.1", "name": "gpt-4.1"},             # TBD add to pricing module
-    # {"id": "gpt-4.1-mini", "name": "gpt-4.1-mini"},   # TBD add to pricing module
-    # {"id": "gpt-4.1-nano", "name": "gpt-4.1-nano"},   # TBD add to pricing module
-    {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest"},
-    {"id": "gpt-4o", "name": "gpt-4o"},
-    {"id": "gpt-4o-2024-05-13", "name": "gpt-4o-2024-05-13"},
-    {"id": "gpt-4o-2024-08-06", "name": "gpt-4o-2024-08-06"},
-    {"id": "gpt-4o-2024-11-20", "name": "gpt-4o-2024-11-20"},
-    {"id": "gpt-4-turbo", "name": "gpt-4-turbo"},
-    {"id": "gpt-4.5-preview", "name": "gpt-4.5-preview"},
-]
 
 class Pipe:
+
     class Valves(BaseModel):
         OPENAI_API_BASE_URL: str = Field(
-            default="https://api.openai.com/v1",
+            default="https://...",
             description="The base URL for OpenAI API endpoints.",
         )
         OPENAI_API_KEY: str = Field(
@@ -45,17 +34,22 @@ class Pipe:
 
     def __init__(self):
         self.type = "manifold"
-        self.id = "openai"
-        self.name = "openai/"
+        self.id = "deepseek"
+        self.name = "deepseek/"
+
         self.valves = self.Valves()
+
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
     def get_openai_pipe(self):
+
         module_name = MODULE_OPENAI_COMPATIBLE_PIPE
+
         if module_name not in sys.modules:
             raise Exception(f"Module {module_name} is not loaded")
 
         module = sys.modules[module_name]
+
         return module.OpenAIPipe(
             debug=self.valves.DEBUG,
             debug_logging_prefix=self.debug_logging_prefix,
@@ -64,8 +58,19 @@ class Pipe:
         )
 
     def pipes(self):
-        enabled_models = [ model for model in AVAILABLE_MODELS ]
-        return enabled_models
+
+        # models = self.get_openai_pipe().get_models()
+
+        # Requesting models list from OpenAI works (worked) - see above; But introduced performance delays in the application.
+
+        # A static hardcoded list is faster
+
+        models = [
+            {"id": "deepseek-reasoner", "name": "DeepSeek-R1 (Reasoner)"},
+            {"id": "deepseek-chat", "name": "DeepSeek-V3"},
+        ]
+
+        return models
 
     async def pipe(
         self,
@@ -75,12 +80,13 @@ class Pipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
-        
-        # See https://community.openai.com/t/developer-role-not-accepted-for-o1-o1-mini-o3-mini/1110750/6
-        if body["messages"][0]["role"] == "system" and ("o1-mini" in body["model"] or "o1-preview" in body["model"]):
+
+        if "o1" in body["model"] and body["messages"][0]["role"] == "system":
+
             print(
-                "OpenAI Manifold: this model do not currently support System message. Converting System Prompt to User role."
+                f"OpenAI Manifold: o1 models do not currently support System message. Converting System Prompt to User role."
             )
+
             body["messages"][0]["role"] = "user"
 
         return await self.get_openai_pipe().chat_completion(

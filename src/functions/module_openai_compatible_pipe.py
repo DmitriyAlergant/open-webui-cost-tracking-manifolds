@@ -99,6 +99,8 @@ class OpenAIPipe:
         model_id = body["model"][body["model"].find(".") + 1 :]
 
         payload = {**body, "model": model_id}
+        # Keep reasoning_effort if present
+        # payload.pop("reasoning_effort", None) # Removed this line
 
         # Calculate Input Tokens (Estimated)
         input_content = get_messages_content(body["messages"])
@@ -135,45 +137,71 @@ class OpenAIPipe:
                     generated_tokens = 0
                     last_update_time = 0
                     stream_completed = False
+                    thinking_content_buffer = ""  # Buffer for thinking content
+                    reasoning_tokens = 0  # Accumulator for reasoning tokens
+                    is_thinking_block = False # Track if we are emitting thinking content
 
                     try:
-
-                        response = await self.async_client.chat.completions.create(
-                            **payload
-                        )
+                        response = await self.async_client.chat.completions.create(**payload)
 
                         async for chunk in response:
+                            if not chunk.choices:
+                                continue
 
-                            #OpenAI API is not supposed to have that, but some proxy providers encounter this
-                            if len(chunk.choices)==0:
-                                 continue
+                            delta = chunk.choices[0].delta
 
-                            content = chunk.choices[0].delta.content or ""
+                            # Extract regular content
+                            content = delta.content or ""
+                            if content:
+                                # If we were previously thinking, close the block
+                                if is_thinking_block:
+                                    think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
+                                    yield f"data: {json.dumps(think_end_json)}\n\n"
+                                    is_thinking_block = False
 
-                            # Buffer content for costs calculation (once a second)
+                                streamed_content_buffer += content
+                                content_json = {"choices": [{"index": 0, "delta": {"content": content}}]}
+                                yield f"data: {json.dumps(content_json)}\n\n"
 
-                            streamed_content_buffer += content
 
-                            # Return emulating an SSE stream
+                            # Extract thinking/reasoning content (prioritize reasoning_content from LiteLLM example)
+                            thinking_text = getattr(delta, 'reasoning_content', None)
 
-                            content_json = {
-                                "choices": [{"index": 0, "delta": {"content": content}}]
-                            }
-                            yield f"data: {json.dumps(content_json)}\n\n"
+                            # Fallback check for thinking_blocks (more complex structure)
+                            if not thinking_text and hasattr(delta, 'thinking_blocks') and delta.thinking_blocks:
+                                # Assuming the first block contains the relevant text
+                                if isinstance(delta.thinking_blocks, list) and len(delta.thinking_blocks) > 0:
+                                     thinking_block = delta.thinking_blocks[0]
+                                     if isinstance(thinking_block, dict):
+                                         thinking_text = thinking_block.get('thinking', None)
+
+
+                            if thinking_text:
+                                # If not already thinking, start the block
+                                if not is_thinking_block:
+                                    think_start_json = {"choices": [{"index": 0, "delta": {"content": "<think>"}}]}
+                                    yield f"data: {json.dumps(think_start_json)}\n\n"
+                                    is_thinking_block = True
+
+                                thinking_content_buffer += thinking_text
+                                # Yield thinking content delta (mimicking Anthropic's direct style)
+                                think_content_json = {"choices": [{"index": 0, "delta": {"content": thinking_text}}]}
+                                yield f"data: {json.dumps(think_content_json)}\n\n"
+
 
                             # Update status every ~1 second
-
                             current_time = time.time()
                             if current_time - last_update_time >= 1:
+                                current_generated = cost_tracking_manager.count_tokens(streamed_content_buffer)
+                                current_reasoning = cost_tracking_manager.count_tokens(thinking_content_buffer)
 
-                                generated_tokens += cost_tracking_manager.count_tokens(
-                                    streamed_content_buffer
-                                )
+                                generated_tokens += current_generated
+                                reasoning_tokens += current_reasoning
 
                                 cost_tracking_manager.calculate_costs_update_status_and_persist(
                                     input_tokens=input_tokens,
                                     generated_tokens=generated_tokens,
-                                    reasoning_tokens=None,
+                                    reasoning_tokens=reasoning_tokens, # Pass reasoning tokens
                                     start_time=start_time,
                                     __event_emitter__=__event_emitter__,
                                     status="Streaming...",
@@ -182,8 +210,13 @@ class OpenAIPipe:
                                 )
 
                                 streamed_content_buffer = ""
-
+                                thinking_content_buffer = "" # Clear thinking buffer too
                                 last_update_time = current_time
+
+                        # If the stream ended while thinking, close the block
+                        if is_thinking_block:
+                            think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
+                            yield f"data: {json.dumps(think_end_json)}\n\n"
 
                         stream_completed = True
                         yield "data: [DONE]\n\n"
@@ -200,14 +233,17 @@ class OpenAIPipe:
                         raise e
 
                     finally:
-                        generated_tokens += cost_tracking_manager.count_tokens(
-                            streamed_content_buffer
-                        )
+                        # Final token count for any remaining buffer content
+                        final_generated = cost_tracking_manager.count_tokens(streamed_content_buffer)
+                        final_reasoning = cost_tracking_manager.count_tokens(thinking_content_buffer)
+
+                        generated_tokens += final_generated
+                        reasoning_tokens += final_reasoning
 
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
                             input_tokens=input_tokens,
                             generated_tokens=generated_tokens,
-                            reasoning_tokens=None,
+                            reasoning_tokens=reasoning_tokens, # Pass final reasoning tokens
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
@@ -216,9 +252,9 @@ class OpenAIPipe:
                         )
 
                         if self.debug:
-                            print(
-                                f"{self.debug_logging_prefix} Finalized stream (completed: {stream_completed})"
-                            )
+                             print(
+                                 f"{self.debug_logging_prefix} Finalized stream (completed: {stream_completed}, generated: {generated_tokens}, reasoning: {reasoning_tokens})"
+                             )
 
                 return StreamingResponse(
                     stream_generator(), media_type="text/event-stream"
@@ -247,6 +283,29 @@ class OpenAIPipe:
                     .get("completion_tokens_details", {})
                     .get("reasoning_tokens", 0)
                 )
+
+                # Add potential reasoning content counting for batch responses if usage doesn't provide it
+                # This might be needed if 'reasoning_tokens' isn't in 'usage' for batch calls
+                if reasoning_tokens == 0 and response_json.get('choices'):
+                    try:
+                        message_data = response_json['choices'][0].get('message', {})
+                        # Check both reasoning_content and thinking_blocks based on LiteLLM example
+                        reasoning_content = message_data.get('reasoning_content')
+                        if not reasoning_content and message_data.get('thinking_blocks'):
+                            thinking_blocks = message_data['thinking_blocks']
+                            if isinstance(thinking_blocks, list) and len(thinking_blocks) > 0:
+                                thinking_block = thinking_blocks[0]
+                                if isinstance(thinking_block, dict):
+                                    reasoning_content = thinking_block.get('thinking') # Extract text
+
+                        if reasoning_content:
+                             reasoning_tokens = cost_tracking_manager.count_tokens(reasoning_content)
+                             if self.debug:
+                                 print(f"{self.debug_logging_prefix} Manually counted reasoning tokens for batch response: {reasoning_tokens}")
+                    except (IndexError, KeyError, AttributeError, TypeError) as e:
+                         if self.debug:
+                            print(f"{self.debug_logging_prefix} Could not extract/count reasoning_content from batch response: {e}")
+
 
                 cost_tracking_manager.calculate_costs_update_status_and_persist(
                     input_tokens=input_tokens,
