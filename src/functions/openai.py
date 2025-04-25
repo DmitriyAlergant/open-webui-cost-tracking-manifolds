@@ -15,6 +15,7 @@ import sys
 MODULE_OPENAI_COMPATIBLE_PIPE = "function_module_openai_compatible_pipe"
 
 AVAILABLE_MODELS = [
+    {"id": "o3", "name": "o3"},
     {"id": "o1", "name": "o1"},
     {"id": "o4-mini", "name": "o4-mini"},
     {"id": "o3-mini", "name": "o3-mini"},
@@ -83,6 +84,9 @@ class Pipe:
                 "OpenAI Manifold: this model do not currently support System message. Converting System Prompt to User role."
             )
             body["messages"][0]["role"] = "user"
+
+        if body["stream"]:
+            body["stream_options"] = {"include_usage": True}
 
         return await self.get_openai_pipe().chat_completion(
             body=body,

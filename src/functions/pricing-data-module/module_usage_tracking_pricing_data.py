@@ -8,6 +8,62 @@ license: MIT
 """
 
 pricing_data = {
+    "google_openai_api.gemini-2.5-pro-preview-03-25": {
+        "input_cost_per_token": 1.5,            # blend of short-context and long-context (>200K) price
+        "output_cost_per_token": 12,            
+        "input_display_cost_per_token": 1.5,
+        "output_display_cost_per_token": 12,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },  
+    "google_openai_api.gemini-2.5-flash-preview-04-17": {
+        "input_cost_per_token": 0.15,
+        "output_cost_per_token": 1.2,           # blend of thinking and non-thinking tokens price
+        "input_display_cost_per_token": 0.15,
+        "output_display_cost_per_token": 1.2,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },   
+    "openai.o3": {
+        "input_cost_per_token": 10,
+        "output_cost_per_token": 40,
+        "input_display_cost_per_token": 10,
+        "output_display_cost_per_token": 40,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },   
+    "openai.o4-mini": {
+        "input_cost_per_token": 1.1,
+        "output_cost_per_token": 4.4,
+        "input_display_cost_per_token": 1.1,
+        "output_display_cost_per_token": 4.4,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },   
+    "openai.gpt-4.1": {
+        "input_cost_per_token": 2,
+        "output_cost_per_token": 8,
+        "input_display_cost_per_token": 2,
+        "output_display_cost_per_token": 8,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },   
+    "openai.gpt-4.1-mini": {
+        "input_cost_per_token": 0.4,
+        "output_cost_per_token": 1.6,
+        "input_display_cost_per_token": 0.4,
+        "output_display_cost_per_token": 1.6,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },   
+    "openai.gpt-4.1-nano": {
+        "input_cost_per_token": 0.1,
+        "output_cost_per_token": 0.4,
+        "input_display_cost_per_token": 0.1,
+        "output_display_cost_per_token": 0.4,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },   
     "openai.o1": {
         "input_cost_per_token": 0.015,
         "output_cost_per_token": 0.060,
@@ -175,22 +231,6 @@ pricing_data = {
         "output_display_cost_per_token": 15.00,
         "token_units": 1000000,
         "cost_currency": "USD",
-    },
-    "yandexgpt.yandexgpt": {
-        "input_cost_per_token": 0.00120,
-        "output_cost_per_token": 0.00120,
-        "input_display_cost_per_token": 0.00120,
-        "output_display_cost_per_token": 0.00120,
-        "token_units": 1,
-        "cost_currency": "RUB",
-    },
-    "yandexgpt.yandexgpt-lite": {
-        "input_cost_per_token": 0.00020,
-        "output_cost_per_token": 0.00020,
-        "input_display_cost_per_token": 0.00020,
-        "output_display_cost_per_token": 0.00020,
-        "token_units": 1,
-        "cost_currency": "RUB",
     },
 }
 
