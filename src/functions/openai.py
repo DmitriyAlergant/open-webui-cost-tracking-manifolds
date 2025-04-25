@@ -15,22 +15,22 @@ import sys
 MODULE_OPENAI_COMPATIBLE_PIPE = "function_module_openai_compatible_pipe"
 
 AVAILABLE_MODELS = [
-    {"id": "o3", "name": "o3"},
-    {"id": "o1", "name": "o1"},
-    {"id": "o4-mini", "name": "o4-mini"},
-    {"id": "o3-mini", "name": "o3-mini"},
-    {"id": "o1-mini", "name": "o1-mini"},
-    {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
-    {"id": "gpt-4.1", "name": "gpt-4.1"},            
-    {"id": "gpt-4.1-mini", "name": "gpt-4.1-mini"},  
-    {"id": "gpt-4.1-nano", "name": "gpt-4.1-nano"},   
-    {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest"},
-    {"id": "gpt-4o", "name": "gpt-4o"},
-    {"id": "gpt-4o-2024-05-13", "name": "gpt-4o-2024-05-13"},
-    {"id": "gpt-4o-2024-08-06", "name": "gpt-4o-2024-08-06"},
-    {"id": "gpt-4o-2024-11-20", "name": "gpt-4o-2024-11-20"},
-    {"id": "gpt-4-turbo", "name": "gpt-4-turbo"},
-    {"id": "gpt-4.5-preview", "name": "gpt-4.5-preview"},
+    {"id": "o3", "name": "o3", "generate_thinking_block": True},
+    {"id": "o1", "name": "o1", "generate_thinking_block": True},
+    {"id": "o4-mini", "name": "o4-mini", "generate_thinking_block": True},
+    {"id": "o3-mini", "name": "o3-mini", "generate_thinking_block": True},
+    {"id": "o1-mini", "name": "o1-mini", "generate_thinking_block": True},
+    {"id": "gpt-4o-mini", "name": "gpt-4o-mini", "generate_thinking_block": False},
+    {"id": "gpt-4.1", "name": "gpt-4.1", "generate_thinking_block": False},
+    {"id": "gpt-4.1-mini", "name": "gpt-4.1-mini", "generate_thinking_block": False},
+    {"id": "gpt-4.1-nano", "name": "gpt-4.1-nano", "generate_thinking_block": False},
+    {"id": "chatgpt-4o-latest", "name": "chatgpt-4o-latest", "generate_thinking_block": False},
+    {"id": "gpt-4o", "name": "gpt-4o", "generate_thinking_block": False},
+    {"id": "gpt-4o-2024-05-13", "name": "gpt-4o-2024-05-13", "generate_thinking_block": False},
+    {"id": "gpt-4o-2024-08-06", "name": "gpt-4o-2024-08-06", "generate_thinking_block": False},
+    {"id": "gpt-4o-2024-11-20", "name": "gpt-4o-2024-11-20", "generate_thinking_block": False},
+    {"id": "gpt-4-turbo", "name": "gpt-4-turbo", "generate_thinking_block": False},
+    {"id": "gpt-4.5-preview", "name": "gpt-4.5-preview", "generate_thinking_block": False},
 ]
 
 class Pipe:
@@ -78,6 +78,19 @@ class Pipe:
         __task__,
     ) -> Union[str, StreamingResponse]:
         
+        # Retrieve the model ID suffix from the body
+        full_model_id = body.get("model", "")
+        model_id_suffix = full_model_id.split(".")[-1] # Get the part after the last period
+
+        # Find the model in AVAILABLE_MODELS and get its generate_thinking_block flag
+        generate_thinking_block = False # Default value
+        for model_def in AVAILABLE_MODELS:
+            if model_def.get("id") == model_id_suffix:
+                generate_thinking_block = model_def.get("generate_thinking_block", False)
+                break
+
+        body["generate_thinking_block"] = generate_thinking_block
+
         # See https://community.openai.com/t/developer-role-not-accepted-for-o1-o1-mini-o3-mini/1110750/6
         if body["messages"][0]["role"] == "system" and ("o1-mini" in body["model"] or "o1-preview" in body["model"]):
             print(

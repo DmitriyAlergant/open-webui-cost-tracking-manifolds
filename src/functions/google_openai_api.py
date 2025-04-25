@@ -47,14 +47,17 @@ class Pipe:
             {
                 "id": "gemini-2.5-pro-preview-03-25",
                 "name": "gemini-2.5-pro-preview-03-25",
+                "generate_thinking_block": True
             },
             {
                 "id": "gemini-2.5-flash-preview-04-17",
                 "name": "gemini-2.5-flash-preview-04-17",
+                "generate_thinking_block": True
             },
             {
                 "id": "gemini-2.5-pro-exp-03-25",
                 "name": "gemini-2.5-pro-exp-03-25-free",
+                "generate_thinking_block": True
             },
         ]
 
@@ -81,6 +84,25 @@ class Pipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
+        
+        # Retrieve the model ID suffix from the body
+        full_model_id = body.get("model", "")
+        model_id_suffix = full_model_id.split(".", 1)[1] if "." in full_model_id else full_model_id
+
+        if self.valves.DEBUG:
+            print(f"model_id_suffix: {model_id_suffix}")
+
+        # Find the model in self.pipes() and get its generate_thinking_block flag
+        generate_thinking_block = False 
+        for model_def in self.pipes():
+            if model_def.get("id") == model_id_suffix:
+                generate_thinking_block = model_def.get("generate_thinking_block", False)
+                break
+
+        body["generate_thinking_block"] = generate_thinking_block
+
+        if body["stream"]:
+            body["stream_options"] = {"include_usage": True}
         
         return await self.get_openai_pipe().chat_completion(
             body=body,

@@ -97,6 +97,7 @@ class OpenAIPipe:
             debug=self.debug
         )
 
+
         model_id = body["model"][body["model"].find(".") + 1 :]
 
         payload = {**body, "model": model_id}
@@ -111,6 +112,10 @@ class OpenAIPipe:
 
         if self.debug:
             print(f"{self.debug_logging_prefix} Request Payload: {payload}")
+
+        # Check for and remove the generate_thinking_block flag
+        generate_thinking_block = payload.pop("generate_thinking_block", False)
+
 
         try:
             start_time = time.time()
@@ -135,35 +140,82 @@ class OpenAIPipe:
 
                 async def stream_generator():
                     streamed_content_buffer = ""
-                    generated_tokens = 0
-                    last_update_time = 0
-                    stream_completed = False
-                    thinking_content_buffer = ""  # Buffer for thinking content
-                    reasoning_tokens = 0  # Accumulator for reasoning tokens
+                    thinking_content_buffer = "" # Buffer for thinking content
+                    generated_tokens = 0 # Accumulator for periodic updates (non-heartbeat)
+                    reasoning_tokens = 0 # Accumulator for periodic updates (non-heartbeat)
                     is_thinking_block = False # Track if we are emitting thinking content
                     final_usage_stats = None # Store final usage stats if provided by the stream
+                    response_stream = None # Placeholder for the stream object
+                    last_update_time = 0 # Relevant for non-heartbeat periodic updates
+                    stream_completed = False # Track if the stream finished cleanly
 
                     try:
-                        response = await self.async_client.chat.completions.create(**payload)
+                        if generate_thinking_block:
+                            # --- New Heartbeat Streaming Logic ---
+                            if self.debug:
+                                print(f"{self.debug_logging_prefix} Starting async streaming request with synthetic thinking block heartbeat....")
 
-                        async for chunk in response:
+                                print(f"Yielding thinking block...")
+
+
+                            # Yield initial thinking message
+                            think_start_json = {"choices": [{"index": 0, "delta": {"content": "<think>"}}]}
+                            yield f"data: {json.dumps(think_start_json)}\n\n"
+                            think_content_json = {"choices": [{"index": 0, "delta": {"content": "Thinking... Model thoughts are not shown via this API."}}]}
+                            yield f"data: {json.dumps(think_content_json)}\n\n"
+                            is_thinking_block = True 
+
+                            create_task = asyncio.create_task(self.async_client.chat.completions.create(**payload))
+                            # Emit heartbeat every 5 seconds until the call completes
+                            while True:
+                                try:
+                                    done, pending = await asyncio.wait({create_task}, timeout=5)
+                                    if create_task in done:
+                                        response_stream = create_task.result() # This gets the stream object
+                                        break
+
+                                    # Emit the still-thinking heartbeat message
+                                    if self.debug:
+                                        print(f"Yielding still-thinking heartbeat message...")
+                                    think_content_json = {"choices": [{"index": 0, "delta": {"content": "\nStill thinking..."}}]}
+                                    yield f"data: {json.dumps(think_content_json)}\n\n"
+                                except asyncio.CancelledError:
+                                    if self.debug:
+                                        print(f"{self.debug_logging_prefix} Heartbeat loop cancelled.")
+                                    raise 
+                                except Exception as e:
+                                    if self.debug:
+                                        print(f"{self.debug_logging_prefix} Error during heartbeat wait: {e}")
+                                    raise 
+
+                            # Close the thinking block before processing the actual response stream
+                            if is_thinking_block:
+                                think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
+                                yield f"data: {json.dumps(think_end_json)}\n\n"
+                                is_thinking_block = False
+
+                        else:
+                            if self.debug:
+                                print(f"{self.debug_logging_prefix} Starting streaming request...")
+                            response_stream = await self.async_client.chat.completions.create(**payload)
+                            last_update_time = time.time() # Initialize for periodic updates
+
+                        if self.debug:
+                            print(f"{self.debug_logging_prefix} Starting to consume stream response...")
+
+                        async for chunk in response_stream:
                             # --- Check for usage FIRST ---
                             if hasattr(chunk, 'usage') and chunk.usage:
                                 # Store the latest usage stats received. Convert Pydantic model if necessary.
                                 final_usage_stats = chunk.usage if isinstance(chunk.usage, dict) else chunk.usage.model_dump() # Use model_dump
-                                if self.debug:
-                                    print(f"{self.debug_logging_prefix} Received usage stats in stream chunk: {final_usage_stats}")
-                                # This chunk might ONLY contain usage, or usage + final delta. Proceed to check choices.
+                                # if self.debug:
+                                #     print(f"{self.debug_logging_prefix} Received usage stats in stream chunk: {final_usage_stats}")
 
 
-                            # --- Process content delta ---
+                            # Some kind of an empty chunk - ignore
                             if not chunk.choices:
-                                # If no choices, this might be the final usage chunk, or an empty intermediary chunk.
-                                # We've already captured usage if it existed in this chunk.
-                                # Continue to the next chunk as there's no delta content to process.
                                 continue
 
-                            # If we reach here, chunk.choices exists.
                             delta = chunk.choices[0].delta
 
                             # Extract regular content
@@ -205,9 +257,9 @@ class OpenAIPipe:
                                 yield f"data: {json.dumps(think_content_json)}\n\n"
 
 
-                            # Update status every ~1 second
+                            # Update status every ~2 seconds
                             current_time = time.time()
-                            if current_time - last_update_time >= 1:
+                            if current_time - last_update_time >= 2:
                                 current_generated = cost_tracking_manager.count_tokens(streamed_content_buffer)
                                 current_reasoning = cost_tracking_manager.count_tokens(thinking_content_buffer)
 
@@ -217,7 +269,7 @@ class OpenAIPipe:
                                 cost_tracking_manager.calculate_costs_update_status_and_persist(
                                     input_tokens=input_tokens,
                                     generated_tokens=generated_tokens,
-                                    reasoning_tokens=reasoning_tokens, # Pass reasoning tokens
+                                    reasoning_tokens=reasoning_tokens,
                                     start_time=start_time,
                                     __event_emitter__=__event_emitter__,
                                     status="Streaming...",
@@ -229,7 +281,7 @@ class OpenAIPipe:
                                 thinking_content_buffer = "" # Clear thinking buffer too
                                 last_update_time = current_time
 
-                        # If the stream ended while thinking, close the block
+                        # If the stream ended while thinking, close the thinkingblock
                         if is_thinking_block:
                             think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
                             yield f"data: {json.dumps(think_end_json)}\n\n"
@@ -238,36 +290,52 @@ class OpenAIPipe:
                         yield "data: [DONE]\n\n"
 
                     except asyncio.CancelledError:
+                        stream_completed = False
                         if self.debug:
-                            print(
-                                f"{self.debug_logging_prefix} stream_response wrapper... aborted by client"
-                            )
+                            print(f"{self.debug_logging_prefix} stream_response wrapper aborted by client")
+
                     except Exception as e:
+                        stream_completed = False # Mark as errored
                         _, _, tb = sys.exc_info()
                         line_number = tb.tb_lineno
-                        print(f"Error on line {line_number}: {e}")
-                        raise e
+                        print(f"Error in stream_generator's common processing loop on line {line_number}: {e}")
+
+                        # Yield error message to client
+                        error_json = {"error": f"Server error during streaming: {e}"}
+                        try:
+                            yield f"data: {json.dumps(error_json)}\n\n"
+                        except Exception as yield_err:
+                             print(f"Error yielding error message to client: {yield_err}")
+                        raise e # Re-raise the original exception
 
                     finally:
-                        # Final token count for any remaining buffer content
-                        counted_generated_tokens = generated_tokens + cost_tracking_manager.count_tokens(streamed_content_buffer)
-                        counted_reasoning_tokens = reasoning_tokens + cost_tracking_manager.count_tokens(thinking_content_buffer)
+                        if self.debug:
+                             print(f"{self.debug_logging_prefix} Entering stream finally block. Stream completed: {stream_completed}")
 
-                        # Initialize final tokens with counted values or pre-calculated input
+                        # Final token count for any remaining buffer content
+                        final_counted_generated = cost_tracking_manager.count_tokens(streamed_content_buffer)
+                        final_counted_reasoning = cost_tracking_manager.count_tokens(thinking_content_buffer)
+
+                        # Add remaining buffer counts to accumulated totals (relevant for non-heartbeat)
+                        generated_tokens += final_counted_generated
+                        reasoning_tokens += final_counted_reasoning
+
+                        # Initialize final tokens with accumulated/counted values or pre-calculated input
                         final_input_tokens = input_tokens
-                        final_generated_tokens = counted_generated_tokens
-                        final_reasoning_tokens = counted_reasoning_tokens
+                        # Use accumulated tokens if not heartbeat, otherwise use final buffer count directly
+                        final_generated_tokens = generated_tokens if not generate_thinking_block else final_counted_generated
+                        final_reasoning_tokens = reasoning_tokens if not generate_thinking_block else final_counted_reasoning
                         override_occurred = False
 
-                        # Override with final usage stats if available
+                        # Override with final usage stats if available (applies to both branches)
                         if final_usage_stats:
                             if self.debug:
                                 print(f"{self.debug_logging_prefix} Found final usage stats in stream: {final_usage_stats}")
 
                             reported_prompt_tokens = final_usage_stats.get("prompt_tokens")
                             reported_completion_tokens = final_usage_stats.get("completion_tokens")
-                            # Use 'reasoning_tokens' if present in nested structure, otherwise default to None
-                            completion_details = final_usage_stats.get("completion_tokens_details", {})
+                            # Handle potential nested structure for reasoning tokens
+                            completion_details = final_usage_stats.get("completion_tokens_details") or {}
                             reported_reasoning_tokens = completion_details.get("reasoning_tokens")
 
                             if reported_prompt_tokens is not None:
@@ -280,11 +348,31 @@ class OpenAIPipe:
                             if reported_reasoning_tokens is not None:
                                 final_reasoning_tokens = reported_reasoning_tokens
                                 override_occurred = True
+                            # --- Infer reasoning tokens if not provided but total is --- >
+                            elif (reported_reasoning_tokens is None or reported_reasoning_tokens == 0) and \
+                                 reported_prompt_tokens is not None and \
+                                 reported_completion_tokens is not None:
+                                reported_total_tokens = final_usage_stats.get("total_tokens")
+                                if reported_total_tokens is not None:
+                                    inferred_reasoning = reported_total_tokens - reported_prompt_tokens - reported_completion_tokens
+                                    # Use a small threshold (e.g., > 5) to avoid tiny rounding errors causing inference
+                                    if inferred_reasoning > 5:
+                                        final_reasoning_tokens = inferred_reasoning
+                                        override_occurred = True # Mark as override since we used API stats
+                                        if self.debug:
+                                            print(f"{self.debug_logging_prefix} Inferred reasoning tokens from total: {reported_total_tokens} - {reported_prompt_tokens} - {reported_completion_tokens} = {inferred_reasoning}")
+                            # <------------------------------------------------------------
 
                             if override_occurred and self.debug:
                                 print(f"{self.debug_logging_prefix} Overriding counted tokens. Using final stats: Input={final_input_tokens}, Generated={final_generated_tokens}, Reasoning={final_reasoning_tokens}")
 
+                        # If no override occurred, we rely on the final counted tokens from the buffers.
+                        elif not override_occurred and self.debug:
+                            # For non-heartbeat, this uses the accumulated totals. For heartbeat, it uses the final buffer count.
+                            print(f"{self.debug_logging_prefix} No final usage stats from API or no override occurred. Using final calculated tokens: Input={final_input_tokens} (estimated), Generated={final_generated_tokens}, Reasoning={final_reasoning_tokens}")
 
+
+                        # Final cost calculation and persistence
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
                             input_tokens=final_input_tokens,
                             generated_tokens=final_generated_tokens,
@@ -292,7 +380,7 @@ class OpenAIPipe:
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
-                            persist_usage=True,
+                            persist_usage=True, # Persist final usage
                             context_messages_count=len(body["messages"])
                         )
 
@@ -317,40 +405,26 @@ class OpenAIPipe:
                         f"{self.debug_logging_prefix} returning batch response: {response_json}"
                     )
 
-                input_tokens = response_json.get("usage", {}).get(
-                    "prompt_tokens", input_tokens
-                )
-                generated_tokens = response_json.get("usage", {}).get(
-                    "completion_tokens", 0
-                )
-                reasoning_tokens = (
-                    response_json.get("usage", {})
-                    .get("  ", {})
-                    .get("reasoning_tokens", 0)
-                )
+                # Correctly extract tokens, noting that reasoning_tokens is nested
+                usage_details = response_json.get("usage", {})
+                completion_details = usage_details.get("completion_tokens_details", {})
 
-                # Add potential reasoning content counting for batch responses if usage doesn't provide it
-                # This might be needed if 'reasoning_tokens' isn't in 'usage' for batch calls
-                if reasoning_tokens == 0 and response_json.get('choices'):
-                    try:
-                        message_data = response_json['choices'][0].get('message', {})
-                        # Check both reasoning_content and thinking_blocks based on LiteLLM example
-                        reasoning_content = message_data.get('reasoning_content')
-                        if not reasoning_content and message_data.get('thinking_blocks'):
-                            thinking_blocks = message_data['thinking_blocks']
-                            if isinstance(thinking_blocks, list) and len(thinking_blocks) > 0:
-                                thinking_block = thinking_blocks[0]
-                                if isinstance(thinking_block, dict):
-                                    reasoning_content = thinking_block.get('thinking') # Extract text
+                input_tokens = usage_details.get("prompt_tokens", input_tokens) # Use estimated if not provided
+                generated_tokens = usage_details.get("completion_tokens", 0)
+                reasoning_tokens = completion_details.get("reasoning_tokens", 0) # Get from nested details
 
-                        if reasoning_content:
-                             reasoning_tokens = cost_tracking_manager.count_tokens(reasoning_content)
-                             if self.debug:
-                                 print(f"{self.debug_logging_prefix} Manually counted reasoning tokens for batch response: {reasoning_tokens}")
-                    except (IndexError, KeyError, AttributeError, TypeError) as e:
-                         if self.debug:
-                            print(f"{self.debug_logging_prefix} Could not extract/count reasoning_content from batch response: {e}")
+                # Infer reasoning tokens if not provided but total is and difference > 50
+                if (reasoning_tokens is None or reasoning_tokens == 0) and \
+                   input_tokens is not None and generated_tokens is not None:
 
+                    total_tokens = usage_details.get("total_tokens")
+
+                    if total_tokens is not None:
+                        inferred_reasoning = total_tokens - input_tokens - generated_tokens
+                        if inferred_reasoning > 50: # Apply the threshold
+                            reasoning_tokens = inferred_reasoning
+                            if self.debug:
+                                print(f"{self.debug_logging_prefix} Inferred reasoning tokens for batch from total: {total_tokens} - {input_tokens} - {generated_tokens} = {inferred_reasoning}")
 
                 cost_tracking_manager.calculate_costs_update_status_and_persist(
                     input_tokens=input_tokens,

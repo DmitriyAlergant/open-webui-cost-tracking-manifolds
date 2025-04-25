@@ -81,13 +81,8 @@ class Pipe:
         __task__,
     ) -> Union[str, StreamingResponse]:
 
-        if "o1" in body["model"] and body["messages"][0]["role"] == "system":
-
-            print(
-                f"OpenAI Manifold: o1 models do not currently support System message. Converting System Prompt to User role."
-            )
-
-            body["messages"][0]["role"] = "user"
+        if body["stream"]:
+            body["stream_options"] = {"include_usage": True}
 
         return await self.get_openai_pipe().chat_completion(
             body=body,
