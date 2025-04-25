@@ -613,7 +613,7 @@ class CostTrackingManager:
 
         if generated_tokens:
             if reasoning_tokens:
-                token_parts.append(f"{generated_tokens} output (with {reasoning_tokens} reasoning)")
+                token_parts.append(f"{generated_tokens} output tokens (incl. {reasoning_tokens} reasoning)")
             else:
                 token_parts.append(f"{generated_tokens} output tokens")
 

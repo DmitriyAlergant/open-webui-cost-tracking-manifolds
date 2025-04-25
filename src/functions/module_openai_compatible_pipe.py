@@ -44,6 +44,7 @@ class OpenAIPipe:
         self.async_client = AsyncOpenAI(
                 api_key=self.api_key,
                 base_url=self.api_base_url,
+                timeout=600
             )
 
     def get_models(self):
@@ -140,14 +141,29 @@ class OpenAIPipe:
                     thinking_content_buffer = ""  # Buffer for thinking content
                     reasoning_tokens = 0  # Accumulator for reasoning tokens
                     is_thinking_block = False # Track if we are emitting thinking content
+                    final_usage_stats = None # Store final usage stats if provided by the stream
 
                     try:
                         response = await self.async_client.chat.completions.create(**payload)
 
                         async for chunk in response:
+                            # --- Check for usage FIRST ---
+                            if hasattr(chunk, 'usage') and chunk.usage:
+                                # Store the latest usage stats received. Convert Pydantic model if necessary.
+                                final_usage_stats = chunk.usage if isinstance(chunk.usage, dict) else chunk.usage.model_dump() # Use model_dump
+                                if self.debug:
+                                    print(f"{self.debug_logging_prefix} Received usage stats in stream chunk: {final_usage_stats}")
+                                # This chunk might ONLY contain usage, or usage + final delta. Proceed to check choices.
+
+
+                            # --- Process content delta ---
                             if not chunk.choices:
+                                # If no choices, this might be the final usage chunk, or an empty intermediary chunk.
+                                # We've already captured usage if it existed in this chunk.
+                                # Continue to the next chunk as there's no delta content to process.
                                 continue
 
+                            # If we reach here, chunk.choices exists.
                             delta = chunk.choices[0].delta
 
                             # Extract regular content
@@ -234,16 +250,45 @@ class OpenAIPipe:
 
                     finally:
                         # Final token count for any remaining buffer content
-                        final_generated = cost_tracking_manager.count_tokens(streamed_content_buffer)
-                        final_reasoning = cost_tracking_manager.count_tokens(thinking_content_buffer)
+                        counted_generated_tokens = generated_tokens + cost_tracking_manager.count_tokens(streamed_content_buffer)
+                        counted_reasoning_tokens = reasoning_tokens + cost_tracking_manager.count_tokens(thinking_content_buffer)
 
-                        generated_tokens += final_generated
-                        reasoning_tokens += final_reasoning
+                        # Initialize final tokens with counted values or pre-calculated input
+                        final_input_tokens = input_tokens
+                        final_generated_tokens = counted_generated_tokens
+                        final_reasoning_tokens = counted_reasoning_tokens
+                        override_occurred = False
+
+                        # Override with final usage stats if available
+                        if final_usage_stats:
+                            if self.debug:
+                                print(f"{self.debug_logging_prefix} Found final usage stats in stream: {final_usage_stats}")
+
+                            reported_prompt_tokens = final_usage_stats.get("prompt_tokens")
+                            reported_completion_tokens = final_usage_stats.get("completion_tokens")
+                            # Use 'reasoning_tokens' if present in nested structure, otherwise default to None
+                            completion_details = final_usage_stats.get("completion_tokens_details", {})
+                            reported_reasoning_tokens = completion_details.get("reasoning_tokens")
+
+                            if reported_prompt_tokens is not None:
+                                final_input_tokens = reported_prompt_tokens
+                                override_occurred = True
+                            if reported_completion_tokens is not None:
+                                final_generated_tokens = reported_completion_tokens
+                                override_occurred = True
+                            # Only override reasoning tokens if the key exists and has a value
+                            if reported_reasoning_tokens is not None:
+                                final_reasoning_tokens = reported_reasoning_tokens
+                                override_occurred = True
+
+                            if override_occurred and self.debug:
+                                print(f"{self.debug_logging_prefix} Overriding counted tokens. Using final stats: Input={final_input_tokens}, Generated={final_generated_tokens}, Reasoning={final_reasoning_tokens}")
+
 
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
-                            input_tokens=input_tokens,
-                            generated_tokens=generated_tokens,
-                            reasoning_tokens=reasoning_tokens, # Pass final reasoning tokens
+                            input_tokens=final_input_tokens,
+                            generated_tokens=final_generated_tokens,
+                            reasoning_tokens=final_reasoning_tokens,
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
@@ -253,7 +298,7 @@ class OpenAIPipe:
 
                         if self.debug:
                              print(
-                                 f"{self.debug_logging_prefix} Finalized stream (completed: {stream_completed}, generated: {generated_tokens}, reasoning: {reasoning_tokens})"
+                                 f"{self.debug_logging_prefix} Finalized stream (completed: {stream_completed}). Final Tokens - Input: {final_input_tokens}, Generated: {final_generated_tokens}, Reasoning: {final_reasoning_tokens}"
                              )
 
                 return StreamingResponse(
@@ -280,7 +325,7 @@ class OpenAIPipe:
                 )
                 reasoning_tokens = (
                     response_json.get("usage", {})
-                    .get("completion_tokens_details", {})
+                    .get("  ", {})
                     .get("reasoning_tokens", 0)
                 )
 
