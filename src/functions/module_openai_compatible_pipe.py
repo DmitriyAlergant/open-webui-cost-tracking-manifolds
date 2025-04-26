@@ -372,11 +372,20 @@ class OpenAIPipe:
                             print(f"{self.debug_logging_prefix} No final usage stats from API or no override occurred. Using final calculated tokens: Input={final_input_tokens} (estimated), Generated={final_generated_tokens}, Reasoning={final_reasoning_tokens}")
 
 
+                        # Determine the final output tokens count for cost calculation
+                        output_tokens_for_cost = 0
+                        if override_occurred:
+                            # Assume API's completion_tokens is the total billable output
+                            output_tokens_for_cost = final_generated_tokens
+                        else:
+                            # Sum our counted tokens if no API stats were used
+                            output_tokens_for_cost = final_generated_tokens + final_reasoning_tokens
+
                         # Final cost calculation and persistence
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
                             input_tokens=final_input_tokens,
-                            generated_tokens=final_generated_tokens,
-                            reasoning_tokens=final_reasoning_tokens,
+                            generated_tokens=output_tokens_for_cost, # Use the determined value for cost
+                            reasoning_tokens=final_reasoning_tokens, # Pass separate reasoning for status message
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
@@ -386,7 +395,7 @@ class OpenAIPipe:
 
                         if self.debug:
                              print(
-                                 f"{self.debug_logging_prefix} Finalized stream (completed: {stream_completed}). Final Tokens - Input: {final_input_tokens}, Generated: {final_generated_tokens}, Reasoning: {final_reasoning_tokens}"
+                                 f"{self.debug_logging_prefix} Finalized stream (completed: {stream_completed}). Final Tokens - Input: {final_input_tokens}, Generated (for cost): {output_tokens_for_cost}, Reasoning (for display): {final_reasoning_tokens}"
                              )
 
                 return StreamingResponse(

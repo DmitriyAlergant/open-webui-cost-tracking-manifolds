@@ -353,10 +353,13 @@ class Pipe:
                         generated_tokens += final_generated
                         reasoning_tokens += final_reasoning
 
+                        # Calculate total output tokens for cost calculation
+                        total_output_tokens = generated_tokens + reasoning_tokens
+
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
                             input_tokens=input_tokens,
-                            generated_tokens=generated_tokens,
-                            reasoning_tokens=reasoning_tokens, # Pass final reasoning tokens
+                            generated_tokens=total_output_tokens, # Use total for cost calculation
+                            reasoning_tokens=reasoning_tokens, # Pass separate reasoning tokens for status message
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
@@ -366,7 +369,7 @@ class Pipe:
 
                         if self.valves.DEBUG:
                             print(
-                                f"DEBUG Finalized stream (completed: {stream_completed}, generated: {generated_tokens}, reasoning: {reasoning_tokens})"
+                                f"DEBUG Finalized stream (completed: {stream_completed}, generated: {generated_tokens}, reasoning: {reasoning_tokens}, total output for cost: {total_output_tokens})"
                             )
 
                 return StreamingResponse(

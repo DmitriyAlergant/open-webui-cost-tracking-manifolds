@@ -80,12 +80,12 @@ class Pipe:
         
         # Retrieve the model ID suffix from the body
         full_model_id = body.get("model", "")
-        model_id_suffix = full_model_id.split(".")[-1] # Get the part after the last period
+        model_id_without_prefix = full_model_id.split(".", 1)[1] if "." in full_model_id else full_model_id
 
         # Find the model in AVAILABLE_MODELS and get its generate_thinking_block flag
         generate_thinking_block = False # Default value
         for model_def in AVAILABLE_MODELS:
-            if model_def.get("id") == model_id_suffix:
+            if model_def.get("id") == model_id_without_prefix:
                 generate_thinking_block = model_def.get("generate_thinking_block", False)
                 break
 

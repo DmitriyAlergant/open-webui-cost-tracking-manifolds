@@ -87,15 +87,12 @@ class Pipe:
         
         # Retrieve the model ID suffix from the body
         full_model_id = body.get("model", "")
-        model_id_suffix = full_model_id.split(".", 1)[1] if "." in full_model_id else full_model_id
-
-        if self.valves.DEBUG:
-            print(f"model_id_suffix: {model_id_suffix}")
+        model_id_without_prefix = full_model_id.split(".", 1)[1] if "." in full_model_id else full_model_id
 
         # Find the model in self.pipes() and get its generate_thinking_block flag
         generate_thinking_block = False 
         for model_def in self.pipes():
-            if model_def.get("id") == model_id_suffix:
+            if model_def.get("id") == model_id_without_prefix:
                 generate_thinking_block = model_def.get("generate_thinking_block", False)
                 break
 
