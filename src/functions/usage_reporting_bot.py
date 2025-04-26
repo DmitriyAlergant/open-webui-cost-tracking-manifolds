@@ -51,12 +51,23 @@ class Pipe:
             description="Maximum result rows to print for run sql command",
         )
 
-        BALANCE_API_URL: str = Field(
-            default="",
-            description="Balance API endpoint URL",
+        BALANCE_API_PROVIDER_1: str = Field(
+            default="", description="Name or identifier for the first balance API provider (e.g., 'OpenAI', 'Anthropic')"
         )
+        BALANCE_API_URL_1: str = Field(
+            default="",
+            description="Balance API endpoint URL for the first provider",
+        )
+        BALANCE_API_KEY_1: str = Field(default="", description="API key for balance checking for the first provider")
 
-        BALANCE_API_KEY: str = Field(default="", description="API key for balance checking")
+        BALANCE_API_PROVIDER_2: str = Field(
+            default="", description="Name or identifier for the second balance API provider"
+        )
+        BALANCE_API_URL_2: str = Field(
+            default="",
+            description="Balance API endpoint URL for the second provider",
+        )
+        BALANCE_API_KEY_2: str = Field(default="", description="API key for balance checking for the second provider")
 
         SQL_ASSISTANT_MODEL: str = Field(
             default="anthropic.claude-3-5-sonnet-20241022",
@@ -739,36 +750,91 @@ class Pipe:
             return f"Error executing query: {e}"
 
     def get_balance(self) -> str:
-        if not self.valves.BALANCE_API_KEY:
-            return "Error: API key not configured"
+        results = []
+        errors = []
 
-        if not self.valves.BALANCE_API_URL:
-            return "Error: API URL not configured"
+        # Provider 1
+        provider_1_name = self.valves.BALANCE_API_PROVIDER_1 or "Provider 1"
+        if self.valves.BALANCE_API_KEY_1 and self.valves.BALANCE_API_URL_1:
+            try:
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} Requesting balance from {provider_1_name} at {self.valves.BALANCE_API_URL_1}")
 
-        try:
-            if self.valves.DEBUG:
-                print(f"{Config.DEBUG_PREFIX} Requesting balance from {self.valves.BALANCE_API_URL}")
+                headers = {"Authorization": f"Bearer {self.valves.BALANCE_API_KEY_1}"}
+                response = requests.get(self.valves.BALANCE_API_URL_1, headers=headers)
+                response.raise_for_status()
 
-            headers = {"Authorization": f"Bearer {self.valves.BALANCE_API_KEY}"}
-            response = requests.get(self.valves.BALANCE_API_URL, headers=headers)
-            response.raise_for_status()
+                data = response.json()
+                balance = data["balance"]
 
-            data = response.json()
-            balance = data["balance"]
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} API ({provider_1_name}) returned balance: {balance}")
 
-            if self.valves.DEBUG:
-                print(f"{Config.DEBUG_PREFIX} API returned balance: {balance}")
+                results.append(f"**{provider_1_name} balance:** {balance:.2f}")
 
-            return f"Current API balance: {balance:.2f}"
+            except requests.exceptions.RequestException as e:
+                if hasattr(e, "response") and e.response is not None:
+                    error_msg = f"Error retrieving balance from {provider_1_name}: {e.response.status_code} - {e.response.text}"
+                else:
+                    error_msg = f"Error retrieving balance from {provider_1_name}: {str(e)}"
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} {error_msg}")
+                errors.append(error_msg)
+            except Exception as e:
+                error_msg = f"An unexpected error occurred while fetching balance for {provider_1_name}: {str(e)}"
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} {error_msg}")
+                errors.append(error_msg)
+        elif self.valves.BALANCE_API_KEY_1 or self.valves.BALANCE_API_URL_1:
+            errors.append(f"Error: {provider_1_name} configuration is incomplete (missing API key or URL).")
 
-        except requests.exceptions.RequestException as e:
-            if hasattr(e, "response") and e.response is not None:
-                error_msg = f"Error retrieving balance: {e.response.status_code} - {e.response.text}"
-            else:
-                error_msg = f"Error retrieving balance: {str(e)}"
-            if self.valves.DEBUG:
-                print(f"{Config.DEBUG_PREFIX} {error_msg}")
-            return error_msg
+        # Provider 2
+        provider_2_name = self.valves.BALANCE_API_PROVIDER_2 or "Provider 2"
+        if self.valves.BALANCE_API_KEY_2 and self.valves.BALANCE_API_URL_2:
+            try:
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} Requesting balance from {provider_2_name} at {self.valves.BALANCE_API_URL_2}")
+
+                headers = {"Authorization": f"Bearer {self.valves.BALANCE_API_KEY_2}"}
+                response = requests.get(self.valves.BALANCE_API_URL_2, headers=headers)
+                response.raise_for_status()
+
+                data = response.json()
+                balance = data["balance"]
+
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} API ({provider_2_name}) returned balance: {balance}")
+
+                results.append(f"**{provider_2_name} balance:** {balance:.2f}")
+
+            except requests.exceptions.RequestException as e:
+                if hasattr(e, "response") and e.response is not None:
+                    error_msg = f"Error retrieving balance from {provider_2_name}: {e.response.status_code} - {e.response.text}"
+                else:
+                    error_msg = f"Error retrieving balance from {provider_2_name}: {str(e)}"
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} {error_msg}")
+                errors.append(error_msg)
+            except Exception as e:
+                error_msg = f"An unexpected error occurred while fetching balance for {provider_2_name}: {str(e)}"
+                if self.valves.DEBUG:
+                    print(f"{Config.DEBUG_PREFIX} {error_msg}")
+                errors.append(error_msg)
+        elif self.valves.BALANCE_API_KEY_2 or self.valves.BALANCE_API_URL_2:
+            errors.append(f"Error: {provider_2_name} configuration is incomplete (missing API key or URL).")
+
+        # Combine results and errors
+        results_str = "\n\n".join(results)  # Add blank line between provider results
+        errors_str = "\n".join(errors)
+
+        final_message = results_str
+        if errors_str:
+            final_message += ("\n\n" if results_str else "") + errors_str # Add blank line between results and errors
+
+        if not results and not errors:
+            return "Error: No balance providers configured."
+
+        return final_message
 
     def get_table_schema(self):
         """Get the usage_costs table schema based on database type"""
