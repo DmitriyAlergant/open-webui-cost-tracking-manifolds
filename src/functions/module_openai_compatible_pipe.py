@@ -188,11 +188,7 @@ class OpenAIPipe:
                                         print(f"{self.debug_logging_prefix} Error during heartbeat wait: {e}")
                                     raise 
 
-                            # Close the thinking block before processing the actual response stream
-                            if is_thinking_block:
-                                think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
-                                yield f"data: {json.dumps(think_end_json)}\n\n"
-                                is_thinking_block = False
+                                # This "thinking" block will be closed below based on the "is_thinking_block" variable, similar to providers who generate their own thinking blocks that we capture via the stream
 
                         else:
                             if self.debug:
@@ -221,12 +217,13 @@ class OpenAIPipe:
                             # Extract regular content
                             content = delta.content or ""
                             if content:
-                                # If we were previously thinking, close the block
+                                # If we were previously thinking, close the block FIRST
                                 if is_thinking_block:
                                     think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
                                     yield f"data: {json.dumps(think_end_json)}\n\n"
-                                    is_thinking_block = False
+                                    is_thinking_block = False # Ensure it's only closed once
 
+                                # Now yield the actual content
                                 streamed_content_buffer += content
                                 content_json = {"choices": [{"index": 0, "delta": {"content": content}}]}
                                 yield f"data: {json.dumps(content_json)}\n\n"
