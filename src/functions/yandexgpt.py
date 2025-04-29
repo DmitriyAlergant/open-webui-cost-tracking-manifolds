@@ -38,8 +38,10 @@ class Pipe:
 
     def pipes(self) -> List[dict]:
         return [
-            {"id": "yandexgpt-lite", "name": "YandexGPT-Lite"},
-            {"id": "yandexgpt", "name": "YandexGPT"},
+            {"id": "yandexgpt-rc", "name": "YandexGPT 5 (rc) Pro", "api-suffix":"/yandexgpt/rc"},        
+            {"id": "yandexgpt-latest", "name": "YandexGPT 4 Pro", "api-suffix":"/yandexgpt/latest"},
+            {"id": "yandexgpt-lite-rc", "name": "YandexGPT 5 (rc) Lite", "api-suffix":"/yandexgpt-lite/rc"},
+            {"id": "yandexgpt-lite-latest", "name": "YandexGPT 4 Lite", "api-suffix":"/yandexgpt-lite/latest"}
         ]
 
     async def pipe(
@@ -84,10 +86,26 @@ class Pipe:
         )
 
         # Determine the correct model URI
-        if body["model"] == "yandexgpt-lite":
-            model_uri = f"gpt://{self.valves.YANDEX_CATALOG_ID}/yandexgpt-lite/latest"
-        else:  # default to yandexgpt
-            model_uri = f"gpt://{self.valves.YANDEX_CATALOG_ID}/yandexgpt/latest"
+        full_model_id = body["model"]
+        # Strip the manifold ID prefix (e.g., "yandexgpt.") by splitting at the first '.'
+        if '.' in full_model_id:
+            selected_model_id = full_model_id.split('.', 1)[1]
+        else:
+            selected_model_id = full_model_id # Should not happen based on observed format, but handle defensively
+
+        print(f"DEBUG: Full model ID from body: {full_model_id}")
+        print(f"DEBUG: Selected model ID (stripped): {selected_model_id}")
+        model_info = next((p for p in self.pipes() if p["id"] == selected_model_id), None)
+
+        print(f"DEBUG: Model info: {model_info}")
+        
+        if not model_info or "api-suffix" not in model_info:
+            # Raise error if model info or api-suffix is missing
+            raise ValueError(f"Model info for '{selected_model_id}' (derived from '{full_model_id}') not found or missing 'api-suffix'. Please select a valid model from {self.pipes()}.")
+        else:
+            model_suffix = model_info["api-suffix"]
+            
+        model_uri = f"gpt://{self.valves.YANDEX_CATALOG_ID}{model_suffix}"
 
         payload = {
             "modelUri": model_uri,
