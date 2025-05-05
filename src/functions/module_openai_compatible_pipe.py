@@ -413,7 +413,7 @@ class OpenAIPipe:
 
                 # Correctly extract tokens, noting that reasoning_tokens is nested
                 usage_details = response_json.get("usage", {})
-                completion_details = usage_details.get("completion_tokens_details", {})
+                completion_details = usage_details.get("completion_tokens_details", {}) or {}
 
                 input_tokens = usage_details.get("prompt_tokens", input_tokens) # Use estimated if not provided
                 generated_tokens = usage_details.get("completion_tokens", 0)
