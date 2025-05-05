@@ -932,7 +932,8 @@ class Pipe:
                 messages=[
                     {"role": "system", "content": "You are a SQL expert assistant."},
                     {"role": "user", "content": prompt}
-                ]
+                ],
+                stream = False
             )
 
             # Extract and clean query from response
