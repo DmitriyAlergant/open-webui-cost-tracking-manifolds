@@ -336,8 +336,11 @@ class ModelCostManager:
             parts = name.split('_manifold', 1)
             name = parts[0] + (parts[1] if len(parts) > 1 else '')
         
-        if strip_prefix and "." in name:
-            name = name.split(".", 1)[1]
+        if strip_prefix:
+            if "." in name:
+                name = name.split(".", 1)[1]
+            if "/" in name:
+                name = name.split("/", 1)[1]
         
         return name
 
@@ -349,13 +352,15 @@ class ModelCostManager:
         longest_match_length = 0
 
         for key in self.pricing_data.keys():
-            normalized_key = self._normalize_model_name(key, strip_prefix)
+            
+            if normalized_query.startswith(key):
 
-            if normalized_query.startswith(normalized_key):
-                match_length = len(normalized_key)
+                match_length = len(key)
                 if match_length > longest_match_length:
                     longest_match_length = match_length
                     best_match = key
+
+        print (f"{Config.DEBUG_PREFIX} _find_best_match: normalized_query: {normalized_query}, best_match: {best_match}")
 
         return best_match
 
