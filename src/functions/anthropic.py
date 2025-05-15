@@ -40,7 +40,9 @@ class Pipe:
             description="Required API key to access Anthropic API.",
         )
         DEBUG: bool = Field(default=False, description="Display debugging messages")
-
+        ENABLE_WEB_SEARCH: bool = Field(
+            default=False, description="Enable Web Search tool for Anthropic"
+        )
         pass
 
     def __init__(self):
@@ -197,6 +199,14 @@ class Pipe:
             "stream": body.get("stream", False),
         }
 
+        # Inject web search tool if enabled
+        if self.valves.ENABLE_WEB_SEARCH:
+            payload["tools"] = [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 5
+            }]
+
         # Add thinking params and adjust others if reasoning_effort was provided
         if thinking_params:
             payload["thinking"] = thinking_params
@@ -265,6 +275,9 @@ class Pipe:
                         ) as stream:
                             # Use the async iterator directly
                             async for event in stream:
+
+                                #print(f"DEBUG: Anthropic event: {event}")
+
                                 if event.type == "content_block_start":
                                     if event.content_block.type == "thinking":
                                         is_thinking_block = True
@@ -289,15 +302,10 @@ class Pipe:
                                         yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': text}}]})}\n\n"
 
                                 elif event.type == "content_block_stop":
-                                    # Check if the stopped block was a thinking block
-                                    # We rely on the last content_block_start setting is_thinking_block correctly
-                                    # Note: Anthropic SDK doesn't explicitly link stop to start type easily here,
-                                    # so this assumes blocks don't interleave deltas without start/stop.
-                                    # A more robust solution might track indices if needed.
                                     if is_thinking_block:
                                         # Yield closing </think> tag
                                         yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '</think>'}}]})}\n\n"
-                                        is_thinking_block = False # Reset flag
+                                        is_thinking_block = False 
 
                                 # Periodic update for cost tracking (every second)
                                 current_time = time.time()
@@ -340,7 +348,16 @@ class Pipe:
                         line_number = tb.tb_lineno
                         print(f"Error processing stream on line {line_number}: {e}")
                         stream_completed = False # Mark as stopped on error
-                        yield f"data: {json.dumps({'error': str(e)})}\n\n" # Send error to client if possible
+                        # Format error message to match the expected choices array format
+                        error_message = str(e)
+                        if hasattr(e, 'response') and hasattr(e.response, 'json'):
+                            try:
+                                error_json = e.response.json()
+                                if 'error' in error_json and 'message' in error_json['error']:
+                                    error_message = error_json['error']['message']
+                            except:
+                                pass
+                        yield f"data: {json.dumps({'choices': [{'index': 0, 'delta': {'content': f'Error: {error_message}'}}]})}\n\n"
                         yield "data: [DONE]\n\n" # Still need to send DONE for OpenWebUI
                         # Re-raise the exception to be caught by the outer handler if needed
                         # raise e # Commented out to allow final cost update
