@@ -269,6 +269,12 @@ class Pipe:
                     tool_use_active = False      # Inside a server_tool_use content block
                     tool_input_buffer = ""       # Collect partial_json for tool arguments
                     current_tool_index = None     # Index of the current tool block so we can reference it when yielding
+                    
+                    # Buffer for text content blocks to group text and their citations
+                    text_content_blocks_data = {}
+                    final_usage_data = None # To store usage from message_delta
+
+                    sse_event_suffix = "\n\n" # Correct SSE formatting
 
                     try:
 
@@ -283,84 +289,118 @@ class Pipe:
                                 #print(f"DEBUG: Anthropic event: {event}")
 
                                 if event.type == "content_block_start":
-                                    if event.content_block.type == "thinking":
+                                    if event.content_block.type == "text":
+                                        text_content_blocks_data[event.index] = {"text_buffer": "", "citations_list": []}
+                                        # Don't yield yet, buffer this text block
+                                    elif event.content_block.type == "thinking":
                                         is_thinking_block = True
                                         # Yield opening <think> tag
-                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '<think>'}}]})}\n\n"
-                                    elif event.content_block.type == "text":
-                                        is_thinking_block = False
+                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '<think>'}}]})}{sse_event_suffix}"
+
                                     elif event.content_block.type == "server_tool_use":
                                         # Begin a tool invocation block – collect its JSON arguments
                                         tool_use_active = True
                                         tool_input_buffer = ""
                                         current_tool_index = event.index
+                                        # Tool use message yielded at content_block_stop
                                     elif hasattr(event.content_block, "type") and str(event.content_block.type).endswith("_tool_result"):
                                         # Handle tool results (for now, only web_search_tool_result is expected)
                                         if event.content_block.type == "web_search_tool_result":
-                                            results_text = "\n\n🌐 Web search results:\n"
-                                            if isinstance(event.content_block.content, list):
-                                                for i, res in enumerate(event.content_block.content, 1):
-                                                    if isinstance(res, dict) and res.get("type") == "web_search_result":
-                                                        title = res.get("title", "result")
-                                                        url = res.get("url", "")
-                                                        results_text += f"{i}. {title} - {url}\n"
-
-                                            # Yield the formatted results for immediate display in Open WebUI
-                                            yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': results_text}}]})}\n\n"
-                                            streamed_content_buffer += results_text
+                                            # The "web_search_tool_result" block itself doesn't need to yield text to the UI.
+                                            # The LLM's subsequent text blocks will reference these results via citations.
+                                            pass # Explicitly do nothing for this block type in terms of direct UI output
                                     # Ignore redacted_thinking for now
 
                                 elif event.type == "content_block_delta":
-                                    if event.delta.type == "thinking_delta":
+                                    block_idx = event.index 
+                                    delta_type = event.delta.type
+
+                                    if block_idx in text_content_blocks_data: # Delta for a text block we are buffering
+                                        if delta_type == "text_delta":
+                                            text_content_blocks_data[block_idx]["text_buffer"] += event.delta.text
+                                        elif delta_type == "citations_delta":
+                                            text_content_blocks_data[block_idx]["citations_list"].append(event.delta.citation)
+                                        # No yield from here for buffered text blocks, processed at content_block_stop
+                                    
+                                    # Deltas for non-buffered blocks (thinking, tool input)
+                                    elif delta_type == "thinking_delta":
                                         thinking_text = event.delta.thinking
                                         # Append to thinking buffer for token counting
                                         thinking_content_buffer += thinking_text
                                         # Yield thinking content delta
-                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': thinking_text}}]})}\n\n"
-                                    elif event.delta.type == "text_delta":
-                                        text = event.delta.text
-                                        # Append to regular buffer for token counting
-                                        streamed_content_buffer += text
-                                        # Yield regular content delta
-                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': text}}]})}\n\n"
-                                    elif tool_use_active and event.delta.type == "input_json_delta":
+                                        yield f"data: {json.dumps({'choices': [{'index': block_idx, 'delta': {'content': thinking_text}}]})}{sse_event_suffix}"
+
+                                    # tool_use_active implicitly checks if current_tool_index is not None
+                                    elif tool_use_active and delta_type == "input_json_delta" and block_idx == current_tool_index:
                                         # Accumulate partial JSON representing tool input
                                         tool_input_buffer += event.delta.partial_json
-                                    elif event.delta.type == "citations_delta":
-                                        citation = event.delta.citation
-                                        # Safely access attributes using getattr
-                                        title = getattr(citation, 'title', getattr(citation, 'url', ''))
-                                        url = getattr(citation, 'url', '')
-                                        citation_text = f" ([{title}]({url}))"
-                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': citation_text}}]})}\n\n"
-                                        streamed_content_buffer += citation_text
+                                        # Tool input message yielded at content_block_stop
 
                                 elif event.type == "content_block_stop":
-                                    if is_thinking_block:
-                                        # Yield closing </think> tag
-                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '</think>'}}]})}\n\n"
+                                    block_idx = event.index
+
+                                    if block_idx in text_content_blocks_data: # Stop for a text block we buffered
+                                        data = text_content_blocks_data.pop(block_idx) # Use pop to remove it
+                                        buffer = data["text_buffer"]
+                                        citations_list = data["citations_list"]
+                                        
+                                        content_to_yield = buffer
+                                        assembled_citations_text = ""
+                                        unique_block_citations = set() # To track (title, url) tuples for this block
+
+                                        for cit_obj in citations_list:
+                                            title = getattr(cit_obj, 'title', '')
+                                            url = getattr(cit_obj, 'url', '')
+                                            if url: # Only include citation if there's a URL
+                                                citation_key = (title, url)
+                                                if citation_key not in unique_block_citations:
+                                                    display_name = title if title else url 
+                                                    assembled_citations_text += f" ([{display_name}]({url}))"
+                                                    unique_block_citations.add(citation_key)
+                                        
+                                        content_to_yield += assembled_citations_text
+                                        
+                                        if content_to_yield: # Only yield if there's actual content
+                                            yield f"data: {json.dumps({'choices': [{'index': block_idx, 'delta': {'content': content_to_yield}}]})}{sse_event_suffix}"
+
+                                            streamed_content_buffer += content_to_yield # Add to global buffer for token counting
+                                    
+                                    # Stop for non-text blocks (thinking, tool use)
+                                    elif is_thinking_block and not tool_use_active: # Ensure it's not a tool block also ending
+                                        # This condition for is_thinking_block needs to be robust if thinking can have specific index
+                                        # For now, assumes it's a general flag that's true for the thinking block that just ended.
+                                        yield f"data: {json.dumps({'choices': [{'index': block_idx, 'delta': {'content': '</think>'}}]})}{sse_event_suffix}"
+
                                         is_thinking_block = False 
-                                    elif tool_use_active and event.index == current_tool_index:
+                                    
+                                    elif tool_use_active and block_idx == current_tool_index:
                                         # Conclude server_tool_use block – we now have the full tool input JSON
                                         query = ""
                                         try:
-                                            # The accumulated JSON string might be incomplete; attempt best-effort parsing
                                             query_dict = json.loads(tool_input_buffer) if tool_input_buffer.strip() else {}
                                             query = query_dict.get("query", "")
                                         except Exception:
-                                            pass
+                                            pass # Ignore malformed JSON, proceed with generic message
 
                                         if query:
                                             search_msg = f"\n\n🔎 Searching the web for: {query}\n\n"
                                         else:
                                             search_msg = "\n\n🔎 Performing web search...\n\n"
 
-                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': search_msg}}]})}\n\n"
+                                        yield f"data: {json.dumps({'choices': [{'index': block_idx, 'delta': {'content': search_msg}}]})}{sse_event_suffix}"
+
                                         streamed_content_buffer += search_msg
 
                                         # Reset tool-use tracking flags
                                         tool_use_active = False
                                         tool_input_buffer = ""
+                                        current_tool_index = None
+
+                                elif event.type == "message_delta": # Capture final usage data
+                                    if hasattr(event, 'usage') and event.usage:
+                                        final_usage_data = event.usage
+                                    if self.valves.DEBUG:
+                                        print(f"{self.debug_prefix} Received message_delta: {event.delta}, Usage: {event.usage}")
 
                                 # Periodic update for cost tracking (every second)
                                 current_time = time.time()
@@ -427,11 +467,32 @@ class Pipe:
 
                         # Calculate total output tokens for cost calculation
                         total_output_tokens = generated_tokens + reasoning_tokens
+                        
+                        # Override with API reported tokens if available from final message_delta
+                        final_input_tokens = input_tokens # Keep originally calculated if not overridden
+                        final_generated_tokens_for_cost = total_output_tokens # Keep self-calculated if not overridden
+                        final_reasoning_tokens_for_status = reasoning_tokens # Keep self-calculated for status message
+
+                        if final_usage_data:
+                            if hasattr(final_usage_data, 'input_tokens') and final_usage_data.input_tokens is not None:
+                                final_input_tokens = final_usage_data.input_tokens
+                            if hasattr(final_usage_data, 'output_tokens') and final_usage_data.output_tokens is not None:
+                                final_generated_tokens_for_cost = final_usage_data.output_tokens
+                                # If API provides total output, we might not have separate reasoning tokens from API.
+                                # For status, we can still show our self-calculated reasoning tokens.
+                                # For cost, the API's output_tokens should be the source of truth.
+                            
+                            if self.valves.DEBUG:
+                                print(f"{self.debug_prefix} Finalizing with API usage data: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}")
+                        else:
+                            if self.valves.DEBUG:
+                                print(f"{self.debug_prefix} Finalizing with self-calculated usage data: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}, Reasoning (status only)={final_reasoning_tokens_for_status}")
+
 
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
-                            input_tokens=input_tokens,
-                            generated_tokens=total_output_tokens, # Use total for cost calculation
-                            reasoning_tokens=reasoning_tokens, # Pass separate reasoning tokens for status message
+                            input_tokens=final_input_tokens,
+                            generated_tokens=final_generated_tokens_for_cost, # Use total for cost calculation (API or self-calc)
+                            reasoning_tokens=final_reasoning_tokens_for_status, # Pass separate reasoning tokens for status message (self-calc)
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
@@ -441,7 +502,7 @@ class Pipe:
 
                         if self.valves.DEBUG:
                             print(
-                                f"DEBUG Finalized stream (completed: {stream_completed}, generated: {generated_tokens}, reasoning: {reasoning_tokens}, total output for cost: {total_output_tokens})"
+                                f"DEBUG Finalized stream (completed: {stream_completed}). Original self-calc gen: {generated_tokens}, orig self-calc reas: {reasoning_tokens}. Used for cost: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}"
                             )
 
                 return StreamingResponse(
