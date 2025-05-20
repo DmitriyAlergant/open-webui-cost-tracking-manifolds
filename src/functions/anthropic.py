@@ -265,6 +265,10 @@ class Pipe:
                     thinking_content_buffer = ""  # Buffer for thinking content
                     reasoning_tokens = 0  # Accumulator for reasoning tokens
                     is_thinking_block = False # Flag to track if we are inside a thinking block
+                    # Variables to handle tool usage (e.g., web_search)
+                    tool_use_active = False      # Inside a server_tool_use content block
+                    tool_input_buffer = ""       # Collect partial_json for tool arguments
+                    current_tool_index = None     # Index of the current tool block so we can reference it when yielding
 
                     try:
 
@@ -285,6 +289,25 @@ class Pipe:
                                         yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '<think>'}}]})}\n\n"
                                     elif event.content_block.type == "text":
                                         is_thinking_block = False
+                                    elif event.content_block.type == "server_tool_use":
+                                        # Begin a tool invocation block – collect its JSON arguments
+                                        tool_use_active = True
+                                        tool_input_buffer = ""
+                                        current_tool_index = event.index
+                                    elif hasattr(event.content_block, "type") and str(event.content_block.type).endswith("_tool_result"):
+                                        # Handle tool results (for now, only web_search_tool_result is expected)
+                                        if event.content_block.type == "web_search_tool_result":
+                                            results_text = "\n\n🌐 Web search results:\n"
+                                            if isinstance(event.content_block.content, list):
+                                                for i, res in enumerate(event.content_block.content, 1):
+                                                    if isinstance(res, dict) and res.get("type") == "web_search_result":
+                                                        title = res.get("title", "result")
+                                                        url = res.get("url", "")
+                                                        results_text += f"{i}. {title} - {url}\n"
+
+                                            # Yield the formatted results for immediate display in Open WebUI
+                                            yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': results_text}}]})}\n\n"
+                                            streamed_content_buffer += results_text
                                     # Ignore redacted_thinking for now
 
                                 elif event.type == "content_block_delta":
@@ -300,12 +323,44 @@ class Pipe:
                                         streamed_content_buffer += text
                                         # Yield regular content delta
                                         yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': text}}]})}\n\n"
+                                    elif tool_use_active and event.delta.type == "input_json_delta":
+                                        # Accumulate partial JSON representing tool input
+                                        tool_input_buffer += event.delta.partial_json
+                                    elif event.delta.type == "citations_delta":
+                                        citation = event.delta.citation
+                                        # Safely access attributes using getattr
+                                        title = getattr(citation, 'title', getattr(citation, 'url', ''))
+                                        url = getattr(citation, 'url', '')
+                                        citation_text = f" ([{title}]({url}))"
+                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': citation_text}}]})}\n\n"
+                                        streamed_content_buffer += citation_text
 
                                 elif event.type == "content_block_stop":
                                     if is_thinking_block:
                                         # Yield closing </think> tag
                                         yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': '</think>'}}]})}\n\n"
                                         is_thinking_block = False 
+                                    elif tool_use_active and event.index == current_tool_index:
+                                        # Conclude server_tool_use block – we now have the full tool input JSON
+                                        query = ""
+                                        try:
+                                            # The accumulated JSON string might be incomplete; attempt best-effort parsing
+                                            query_dict = json.loads(tool_input_buffer) if tool_input_buffer.strip() else {}
+                                            query = query_dict.get("query", "")
+                                        except Exception:
+                                            pass
+
+                                        if query:
+                                            search_msg = f"\n\n🔎 Searching the web for: {query}\n\n"
+                                        else:
+                                            search_msg = "\n\n🔎 Performing web search...\n\n"
+
+                                        yield f"data: {json.dumps({'choices': [{'index': event.index, 'delta': {'content': search_msg}}]})}\n\n"
+                                        streamed_content_buffer += search_msg
+
+                                        # Reset tool-use tracking flags
+                                        tool_use_active = False
+                                        tool_input_buffer = ""
 
                                 # Periodic update for cost tracking (every second)
                                 current_time = time.time()
