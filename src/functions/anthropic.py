@@ -273,6 +273,7 @@ class Pipe:
                     # Buffer for text content blocks to group text and their citations
                     text_content_blocks_data = {}
                     final_usage_data = None # To store usage from message_delta
+                    web_search_requests_count = 0 # Initialize web search counter
 
                     sse_event_suffix = "\n\n" # Correct SSE formatting
 
@@ -399,6 +400,11 @@ class Pipe:
                                 elif event.type == "message_delta": # Capture final usage data
                                     if hasattr(event, 'usage') and event.usage:
                                         final_usage_data = event.usage
+                                        # Update web_search_requests_count if present in the delta's usage
+                                        if hasattr(event.usage, 'server_tool_use') and isinstance(event.usage.server_tool_use, dict):
+                                            current_api_search_count = event.usage.server_tool_use.get('web_search_requests', 0)
+                                            if current_api_search_count > web_search_requests_count: # Ensure we take the highest reported
+                                                web_search_requests_count = current_api_search_count
                                     if self.valves.DEBUG:
                                         print(f"{self.debug_prefix} Received message_delta: {event.delta}, Usage: {event.usage}")
 
@@ -416,6 +422,7 @@ class Pipe:
                                         input_tokens=input_tokens,
                                         generated_tokens=generated_tokens,
                                         reasoning_tokens=reasoning_tokens, # Pass reasoning tokens
+                                        web_search_requests_count=web_search_requests_count, # Pass current search count
                                         start_time=start_time,
                                         __event_emitter__=__event_emitter__,
                                         status="Streaming...",
@@ -482,17 +489,26 @@ class Pipe:
                                 # For status, we can still show our self-calculated reasoning tokens.
                                 # For cost, the API's output_tokens should be the source of truth.
                             
+                            # Explicitly get the final web_search_requests_count from final_usage_data for the final call
+                            if hasattr(final_usage_data, 'server_tool_use') and final_usage_data.server_tool_use is not None:
+                                stu = final_usage_data.server_tool_use
+                                if hasattr(stu, 'web_search_requests') and isinstance(stu.web_search_requests, int):
+                                    web_search_requests_count = stu.web_search_requests
+                                elif isinstance(stu, dict): # Fallback if it's a dict
+                                    web_search_requests_count = stu.get('web_search_requests', web_search_requests_count)
+                                
                             if self.valves.DEBUG:
-                                print(f"{self.debug_prefix} Finalizing with API usage data: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}")
+                                print(f"{self.debug_prefix} Finalizing with API usage data: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}, Updated web_search_count for final call: {web_search_requests_count}")
                         else:
                             if self.valves.DEBUG:
-                                print(f"{self.debug_prefix} Finalizing with self-calculated usage data: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}, Reasoning (status only)={final_reasoning_tokens_for_status}")
+                                print(f"{self.debug_prefix} Finalizing with self-calculated usage data: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}, Reasoning (status only)={final_reasoning_tokens_for_status}, Web Search Count: {web_search_requests_count}")
 
 
                         cost_tracking_manager.calculate_costs_update_status_and_persist(
                             input_tokens=final_input_tokens,
                             generated_tokens=final_generated_tokens_for_cost, # Use total for cost calculation (API or self-calc)
                             reasoning_tokens=final_reasoning_tokens_for_status, # Pass separate reasoning tokens for status message (self-calc)
+                            web_search_requests_count=web_search_requests_count, # Pass final search count
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
                             status="Completed" if stream_completed else "Stopped",
@@ -502,7 +518,7 @@ class Pipe:
 
                         if self.valves.DEBUG:
                             print(
-                                f"DEBUG Finalized stream (completed: {stream_completed}). Original self-calc gen: {generated_tokens}, orig self-calc reas: {reasoning_tokens}. Used for cost: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}"
+                                f"DEBUG Finalized stream (completed: {stream_completed}). Original self-calc gen: {generated_tokens}, orig self-calc reas: {reasoning_tokens}. Used for cost: Input={final_input_tokens}, Output={final_generated_tokens_for_cost}, Web Searches: {web_search_requests_count}"
                             )
 
                 return StreamingResponse(
@@ -537,10 +553,14 @@ class Pipe:
                     "output_tokens", cost_tracking_manager.count_tokens(generated_text)
                 )
 
+                # Get web_search_requests count for batch mode
+                web_search_requests_count_batch = res.get("usage", {}).get("server_tool_use", {}).get("web_search_requests", 0)
+
                 cost_tracking_manager.calculate_costs_update_status_and_persist(
                     input_tokens=input_tokens,
                     generated_tokens=generated_tokens,
                     reasoning_tokens=None, # Batch mode doesn't explicitly track reasoning tokens here yet
+                    web_search_requests_count=web_search_requests_count_batch,
                     start_time=start_time,
                     __event_emitter__=__event_emitter__,
                     status="Completed",

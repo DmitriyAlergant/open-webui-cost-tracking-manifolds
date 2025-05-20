@@ -199,6 +199,8 @@ pricing_data = {
         "output_display_cost_per_token": 0.015,
         "token_units": 1000,
         "cost_currency": "USD",
+        "web_search_request_cost": 0.001,
+        "web_search_request_display_cost": 0.001,
     },
     "claude-3-7-sonnet": {
         "input_cost_per_token": 0.003,
@@ -207,6 +209,8 @@ pricing_data = {
         "output_display_cost_per_token": 0.015,
         "token_units": 1000,
         "cost_currency": "USD",
+        "web_search_request_cost": 0.001,
+        "web_search_request_display_cost": 0.001,
     },
     "claude-3-haiku": {
         "input_cost_per_token": 0.00025,
@@ -223,6 +227,8 @@ pricing_data = {
         "output_display_cost_per_token": 0.005,
         "token_units": 1000,
         "cost_currency": "USD",
+        "web_search_request_cost": 0.001,
+        "web_search_request_display_cost": 0.001,
     },
     "databricks-meta-llama-3-1-70b-instruct": {
         "input_cost_per_token": 1.00,

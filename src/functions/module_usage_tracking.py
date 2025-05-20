@@ -64,7 +64,8 @@ class UsagePersistenceManager:
                 total_cost DECIMAL(20,8),
                 display_cost DECIMAL(20,8),
                 cost_currency TEXT,
-                model_used_by_cost_calculation TEXT
+                model_used_by_cost_calculation TEXT,
+                web_search_requests INTEGER
             )
         """
         create_table_sql = create_table_sql.format(
@@ -89,6 +90,24 @@ class UsagePersistenceManager:
             """
             alter_table_sql = """
                 ALTER TABLE usage_costs ADD COLUMN IF NOT EXISTS display_cost DECIMAL(20,8);
+            """
+
+        # Add web_search_requests column if not exists
+        if is_sqlite:
+            add_web_search_requests_column_sql = """
+                PRAGMA table_info(usage_costs);
+            """
+            alter_table_add_web_search_sql = """
+                ALTER TABLE usage_costs ADD COLUMN web_search_requests INTEGER;
+            """
+        else:
+            # PostgreSQL
+            add_web_search_requests_column_sql = """
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'usage_costs' AND column_name = 'web_search_requests';
+            """
+            alter_table_add_web_search_sql = """
+                ALTER TABLE usage_costs ADD COLUMN IF NOT EXISTS web_search_requests INTEGER;
             """
 
         create_index1_sql = """
@@ -149,6 +168,17 @@ class UsagePersistenceManager:
                     if not result:
                         db.execute(text(alter_table_sql))
                 
+                # Add web_search_requests column to usage_costs if not exists
+                if is_sqlite:
+                    columns = db.execute(text(add_web_search_requests_column_sql)).fetchall()
+                    column_names = [column[1] for column in columns]
+                    if 'web_search_requests' not in column_names:
+                        db.execute(text(alter_table_add_web_search_sql))
+                else:
+                    result = db.execute(text(add_web_search_requests_column_sql)).fetchone()
+                    if not result:
+                        db.execute(text(alter_table_add_web_search_sql))
+                
                 # Add display_cost column to usage_costs_by_chat if not exists
                 if is_sqlite:
                     columns = db.execute(text(add_chat_display_cost_column_sql)).fetchall()
@@ -178,14 +208,15 @@ class UsagePersistenceManager:
         display_cost: Decimal,
         cost_currency,
         model_used_by_cost_calculation: str,
+        web_search_requests: int = 0,
     ):
         """Insert a new cost record into the database"""
         timestamp = datetime.now()
 
         insert_sql = """
             INSERT INTO usage_costs (
-                       user_id, user_email,  model,  task,  metadata, timestamp,  input_tokens,  output_tokens,  total_cost,  display_cost,  cost_currency,  model_used_by_cost_calculation
-            ) VALUES (:user_id, :user_email, :model, :task, :metadata, :timestamp, :input_tokens, :output_tokens, :total_cost, :display_cost, :cost_currency, :model_used_by_cost_calculation)
+                       user_id, user_email,  model,  task,  metadata, timestamp,  input_tokens,  output_tokens,  total_cost,  display_cost,  cost_currency,  model_used_by_cost_calculation, web_search_requests
+            ) VALUES (:user_id, :user_email, :model, :task, :metadata, :timestamp, :input_tokens, :output_tokens, :total_cost, :display_cost, :cost_currency, :model_used_by_cost_calculation, :web_search_requests)
         """
 
         with get_db() as db:
@@ -205,13 +236,14 @@ class UsagePersistenceManager:
                         "display_cost": str(display_cost),
                         "cost_currency": cost_currency,
                         "model_used_by_cost_calculation": model_used_by_cost_calculation,
+                        "web_search_requests": web_search_requests,
                     },
                 )
                 db.commit()
 
                 if self.DEBUG:
                     print(
-                        f"{Config.DEBUG_PREFIX} Persisted usage cost record for user {user_email}, model {model}, task {task}, input tokens {input_tokens}, output_tokens {output_tokens}, total_cost {total_cost}, display_cost {display_cost}, model_used_by_cost_calculation {model_used_by_cost_calculation}"
+                        f"{Config.DEBUG_PREFIX} Persisted usage cost record for user {user_email}, model {model}, task {task}, input tokens {input_tokens}, output_tokens {output_tokens}, total_cost {total_cost}, display_cost {display_cost}, model_used_by_cost_calculation {model_used_by_cost_calculation}, web_search_requests {web_search_requests}"
                     )
 
             except Exception as e:
@@ -419,11 +451,16 @@ class CostCalculationManager:
         # Load tiktoken encoding
         self.enc = self.get_encoding(model)
 
-    def calculate_costs(self, input_tokens: int, output_tokens: int) -> tuple[Decimal, Decimal, str, str]:
+    def calculate_costs(self, input_tokens: int, output_tokens: int, web_search_requests_count: int = 0) -> tuple[Decimal, Decimal, str, str]:
         """
         Calculate both real costs and display costs
         Returns: (total_cost, total_display_cost, cost_currency, model_used_by_cost_calculation)
         """
+
+        if self.DEBUG:
+            print(f"{Config.DEBUG_PREFIX} CostCalculationManager.calculate_costs called with: input_tokens={input_tokens}, output_tokens={output_tokens}, web_search_requests_count={web_search_requests_count}")
+            print(f"{Config.DEBUG_PREFIX} Model pricing data for {self.model_used_by_cost_calculation}: {self.model_pricing_data}")
+
         compensation = Config.COMPENSATION
 
         if not self.model_pricing_data:
@@ -453,10 +490,21 @@ class CostCalculationManager:
                                        self.model_pricing_data.get("output_cost_per_token", 0))
         ) / Decimal(self.model_pricing_data.get("token_units", 1))
 
+        # Calculate cost for web searches
+        web_search_cost_per_request = Decimal(self.model_pricing_data.get("web_search_request_cost", 0))
+        total_web_search_cost = web_search_requests_count * web_search_cost_per_request
+        
+        # Use specific display cost for web search if available, otherwise fallback to real cost
+        web_search_display_cost_per_request = Decimal(
+            self.model_pricing_data.get("web_search_request_display_cost", 
+                                       self.model_pricing_data.get("web_search_request_cost", 0)) # Fallback to real cost
+        )
+        total_web_search_display_cost = web_search_requests_count * web_search_display_cost_per_request
+
         # Calculate real total cost
         input_cost = input_tokens * input_cost_per_token if input_tokens else 0
         output_cost = output_tokens * output_cost_per_token if output_tokens else 0
-        total_cost = Decimal(float(compensation)) * (input_cost + output_cost)
+        total_cost = Decimal(float(compensation)) * (input_cost + output_cost + total_web_search_cost)
         total_cost = total_cost.quantize(
             Decimal(Config.DECIMALS), rounding=ROUND_HALF_UP
         )
@@ -464,14 +512,14 @@ class CostCalculationManager:
         # Calculate display total cost
         input_display_cost = input_tokens * input_display_cost_per_token if input_tokens else 0
         output_display_cost = output_tokens * output_display_cost_per_token if output_tokens else 0
-        total_display_cost = Decimal(float(compensation)) * (input_display_cost + output_display_cost)
+        total_display_cost = Decimal(float(compensation)) * (input_display_cost + output_display_cost + total_web_search_display_cost)
         total_display_cost = total_display_cost.quantize(
             Decimal(Config.DECIMALS), rounding=ROUND_HALF_UP
         )
 
         if self.DEBUG:
             print(
-                f"{Config.DEBUG_PREFIX} Calculated costs: real={total_cost}, display={total_display_cost}, currency={self.model_pricing_data.get('cost_currency', '')}"
+                f"{Config.DEBUG_PREFIX} Calculated costs: real={total_cost} (tokens: {input_cost + output_cost}, search: {total_web_search_cost}), display={total_display_cost} (tokens: {input_display_cost + output_display_cost}, search: {total_web_search_display_cost}), currency={self.model_pricing_data.get('cost_currency', '')}"
             )
 
         return (
@@ -565,7 +613,8 @@ class CostTrackingManager:
         current_display_cost,
         cost_currency,
         status,
-        context_messages_count=0
+        context_messages_count=0,
+        web_search_requests_count: int = 0
     ):
         # Skip status emission if task is not null
         if self.task:
@@ -622,6 +671,10 @@ class CostTrackingManager:
             else:
                 token_parts.append(f"{generated_tokens} output tokens")
 
+        if web_search_requests_count > 0:
+            search_plural = "s" if web_search_requests_count > 1 else ""
+            token_parts.append(f"{web_search_requests_count} web search{search_plural}")
+
         token_str = " | ".join(token_parts) if token_parts else ""
 
         status_parts = [
@@ -662,13 +715,15 @@ class CostTrackingManager:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         status: str,
         persist_usage: bool,
-        context_messages_count: int=0,
+        context_messages_count: int = 0,
+        web_search_requests_count: int = 0,
     ):
         # Calculate Costs
         total_cost, total_display_cost, cost_currency, model_used_by_cost_calculation = (
             self.cost_calculation_manager.calculate_costs(
                 input_tokens=input_tokens,
                 output_tokens=generated_tokens,
+                web_search_requests_count=web_search_requests_count,
             )
         )
 
@@ -684,7 +739,8 @@ class CostTrackingManager:
                 total_display_cost,
                 cost_currency,
                 status,
-                context_messages_count=context_messages_count
+                context_messages_count=context_messages_count,
+                web_search_requests_count=web_search_requests_count
             )
         )
 
@@ -710,7 +766,8 @@ class CostTrackingManager:
                     metadata_dict = {
                         "chat_id": self.__metadata__.get("chat_id"),
                         "session_id": self.__metadata__.get("session_id"),
-                        "context_messages_count": context_messages_count
+                        "context_messages_count": context_messages_count,
+                        "web_search_requests_count": web_search_requests_count,
                     }
                     
                     await self.usage_persistence_manager.log_usage_fact(
@@ -725,6 +782,7 @@ class CostTrackingManager:
                         display_cost=total_display_cost,
                         cost_currency=cost_currency,
                         model_used_by_cost_calculation=model_used_by_cost_calculation,
+                        web_search_requests=web_search_requests_count,
                     )
                 except Exception as e:
                     print(f"{Config.INFO_PREFIX} Error persisting costs: {e}")
