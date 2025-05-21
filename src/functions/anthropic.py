@@ -40,9 +40,6 @@ class Pipe:
             description="Required API key to access Anthropic API.",
         )
         DEBUG: bool = Field(default=False, description="Display debugging messages")
-        ENABLE_WEB_SEARCH: bool = Field(
-            default=False, description="Enable Web Search tool for Anthropic"
-        )
         pass
 
     def __init__(self):
@@ -77,11 +74,46 @@ class Pipe:
 
     def get_anthropic_models(self):
         return [
-            {"id": "claude-3-opus-20240229", "name": "Claude 3 Opus", "max_tokens": 4096, "thinking": None},
-            {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku", "max_tokens": 4096, "thinking": None},
-            {"id": "claude-3-5-sonnet-20240620", "name": "Claude 3.5 Sonnet (2024-06-20)", "max_tokens": 4096, "thinking": None},
-            {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.6 Sonnet (2024-10-22)", "max_tokens": 8192, "thinking": None},
-            {"id": "claude-3-7-sonnet-20250219", "name": "Claude 3.7 Sonnet (2025-02-19) non-thinking", "max_tokens": 16384, "thinking": None},
+            {
+                "id": "claude-3-opus-20240229",
+                "name": "Claude 3 Opus",
+                "max_tokens": 4096,
+                "thinking": None,
+                "web_search": False,
+                "web_search_max_uses": None
+            },
+            {
+                "id": "claude-3-5-haiku-20241022",
+                "name": "Claude 3.5 Haiku",
+                "max_tokens": 4096,
+                "thinking": None,
+                "web_search": False,
+                "web_search_max_uses": None
+            },
+            {
+                "id": "claude-3-5-sonnet-20241022",
+                "name": "Claude 3.6 Sonnet",
+                "max_tokens": 8192,
+                "thinking": None,
+                "web_search": False,
+                "web_search_max_uses": None
+            },
+            {
+                "id": "claude-3-7-sonnet-20250219",
+                "name": "Claude 3.7 Sonnet",
+                "max_tokens": 16384,
+                "thinking": None,
+                "web_search": False,
+                "web_search_max_uses": None
+            },
+            {
+                "id": "claude-3-7-sonnet-20250219-websearch",
+                "name": "Claude 3.7 Sonnet with Web Search",
+                "max_tokens": 16384,
+                "thinking": None,
+                "web_search": True,
+                "web_search_max_uses": 5
+            },
         ]
 
     def pipes(self):
@@ -109,6 +141,22 @@ class Pipe:
         __task__,
     ) -> Union[str, StreamingResponse]:
 
+        # Remove the "anthropic." prefix from the model name
+        clean_model_id = body["model"][body["model"].find(".") + 1 :]
+
+        # Find model config from our models list
+        models = self.get_anthropic_models()
+        model_config = next((m for m in models if m["id"] == clean_model_id), None)
+
+        if self.valves.DEBUG:
+            print(f"{self.debug_prefix} Model config: {model_config}")
+
+        # If the model name ends with -websearch, strip that suffix
+        if clean_model_id.endswith("-websearch"):
+            clean_model_id = clean_model_id.replace("-websearch", "")
+            if self.valves.DEBUG:
+                print(f"{self.debug_prefix} Stripped -websearch suffix from model name: {body['model']}")
+
         # Initialize CostTrackingManager from "usage_tracking_util" function
 
         cost_tracker_module_name = MODULE_USAGE_TRACKING
@@ -117,15 +165,12 @@ class Pipe:
         cost_tracker_module = sys.modules[cost_tracker_module_name]
 
         cost_tracking_manager = cost_tracker_module.CostTrackingManager(
-            model=body["model"], 
+            model=clean_model_id, 
             __user__=__user__, 
             __metadata__=__metadata__, 
             task=__task__, 
             debug=self.valves.DEBUG
         )
-
-        # Remove the "anthropic." prefix from the model name
-        model_id = body["model"][body["model"].find(".") + 1 :]
 
         # Extract system message and pop from messages
         system_message, messages = pop_system_message(body["messages"])
@@ -191,7 +236,7 @@ class Pipe:
 
         # Ensure the system_message is pulled up a body-level parameter as per Anthropic Messages API specs.
         payload = {
-            "model": model_id,
+            "model": clean_model_id,
             "messages": processed_messages,
             **({"max_tokens": max_tokens_override} if max_tokens_override else ({"max_tokens": body["max_tokens"]} if "max_tokens" in body else {"max_tokens": 16384})),
             "stop_sequences": body.get("stop", []),
@@ -199,12 +244,12 @@ class Pipe:
             "stream": body.get("stream", False),
         }
 
-        # Inject web search tool if enabled
-        if self.valves.ENABLE_WEB_SEARCH:
+        # Inject web search tool if enabled for this model        
+        if model_config and model_config.get("web_search", False):
             payload["tools"] = [{
                 "type": "web_search_20250305",
                 "name": "web_search",
-                "max_uses": 5
+                "max_uses": model_config.get("web_search_max_uses", 5)
             }]
 
         # Add thinking params and adjust others if reasoning_effort was provided
