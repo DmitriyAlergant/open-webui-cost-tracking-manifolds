@@ -25,7 +25,7 @@ AVAILABLE_MODELS = [
             "web_search_options": {
                 "search_context_size": "medium"
             }
-        }
+        },
     }
 ]
 
