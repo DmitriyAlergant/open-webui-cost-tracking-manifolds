@@ -105,6 +105,9 @@ class LiteLLMPipe:
                     last_update_time = 0
                     stream_completed_successfully = False
                     first_chunk_received = False
+                    # Citation buffering
+                    pending_citations = [] # List to store citations waiting to be attached to next content
+                    citation_urls_seen = set() # Track URLs to avoid duplicates in same response
 
                     try:
                         # Prepare LiteLLM call arguments
@@ -187,6 +190,21 @@ class LiteLLMPipe:
                             delta = chunk.choices[0].delta
                             actual_content = delta.content or ""
                             
+                            # Handle citations from provider_specific_fields first (these can come in chunks without content)
+                            citation_data = None
+                            if hasattr(delta, 'provider_specific_fields') and delta.provider_specific_fields:
+                                citation_data = delta.provider_specific_fields.get('citation')
+                            
+                            if citation_data and isinstance(citation_data, dict):
+                                # Buffer citation to be added to next content chunk
+                                title = citation_data.get('title', '')
+                                url = citation_data.get('url', '')
+                                if url and url not in citation_urls_seen:
+                                    citation_urls_seen.add(url)
+                                    pending_citations.append((title, url))
+                                    if self.debug:
+                                        print(f"{self.debug_logging_prefix} Buffered citation: {title} - {url}")
+                            
                             # LiteLLM standardizes 'reasoning_content' and 'thinking_blocks' in the message object of the *response* model,
                             # not typically in each delta of a stream. However, some providers might stream it.
                             # We need to check if LiteLLM surfaces this in streaming deltas.
@@ -209,13 +227,23 @@ class LiteLLMPipe:
                                     yield f"data: {json.dumps(think_end_json)}\n\n"
                                     is_thinking_block_active = False # Reset for potential provider-driven blocks
 
-                                streamed_content_buffer += actual_content
-                                content_json = {"choices": [{"index": 0, "delta": {"content": actual_content}}]}
+                                # Add any pending citations to this content chunk
+                                content_with_citations = actual_content
+                                if pending_citations:
+                                    citation_text = ""
+                                    for title, url in pending_citations:
+                                        display_name = title if title else url
+                                        citation_text += f" ([{display_name}]({url}))"
+                                    content_with_citations += citation_text
+                                    pending_citations.clear() # Clear after use
+                                    if self.debug:
+                                        print(f"{self.debug_logging_prefix} Added citations to content: {citation_text}")
+
+                                streamed_content_buffer += content_with_citations
+                                content_json = {"choices": [{"index": 0, "delta": {"content": content_with_citations}}]}
                                 yield f"data: {json.dumps(content_json)}\n\n"
                             
                             # Check for LiteLLM's standardized thinking/reasoning in the chunk if available
-                            # This part is speculative as LiteLLM docs emphasize it on the final message object.
-                            # However, if a provider streams it and LiteLLM normalizes it into the delta, we might find it here.
                             chunk_message = getattr(chunk.choices[0], 'message', None) # Full message object if present in chunk
                             provider_reasoning_content = None
                             if chunk_message and hasattr(chunk_message, 'reasoning_content'):
@@ -280,6 +308,21 @@ class LiteLLMPipe:
                         if is_thinking_block_active: # Close any open thinking block
                             think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
                             yield f"data: {json.dumps(think_end_json)}\n\n"
+                        
+                        # Handle any remaining buffered citations
+                        if pending_citations:
+                            citation_text = ""
+                            for title, url in pending_citations:
+                                display_name = title if title else url
+                                citation_text += f" ([{display_name}]({url}))"
+                            pending_citations.clear()
+                            
+                            # Yield remaining citations as a final content chunk
+                            final_citation_json = {"choices": [{"index": 0, "delta": {"content": citation_text}}]}
+                            yield f"data: {json.dumps(final_citation_json)}\n\n"
+                            
+                            if self.debug:
+                                print(f"{self.debug_logging_prefix} Added remaining citations at end of stream: {citation_text}")
                         
                         stream_completed_successfully = True
                         yield "data: [DONE]\n\n"
