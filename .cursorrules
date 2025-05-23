@@ -1,2 +1,4 @@
-This repo is a collection of "manifold" plugin modules for the OpenWebUI project supporting its integration with various LLM providers with customized solution for Usage Costs tracking.
+This repo is a collection of "manifold" plugin function modules for the OpenWebUI, implementing customized integration with various LLM providers with customized solution for Usage Costs tracking.
+
+
 

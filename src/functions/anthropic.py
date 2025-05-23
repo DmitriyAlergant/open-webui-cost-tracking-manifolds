@@ -107,8 +107,24 @@ class Pipe:
                 "web_search_max_uses": None
             },
             {
-                "id": "claude-3-7-sonnet-20250219-websearch",
-                "name": "Claude 3.7 Sonnet with Web Search",
+                "id": "claude-opus-4-20250514",
+                "name": "Claude 4 Opus",
+                "max_tokens": 16384,
+                "thinking": None,
+                "web_search": False,
+                "web_search_max_uses": None
+            },
+            {
+                "id": "claude-sonnet-4-20250514",
+                "name": "Claude 4 Sonnet",
+                "max_tokens": 16384,
+                "thinking": None,
+                "web_search": False,
+                "web_search_max_uses": None
+            },
+            {
+                "id": "claude-sonnet-4-20250514-websearch",
+                "name": "Claude 4 Sonnet with Web Search",
                 "max_tokens": 16384,
                 "thinking": None,
                 "web_search": True,
