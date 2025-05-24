@@ -192,18 +192,18 @@ class Pipe:
 
         if model_def.get("supports_extended_thinking"):
             if reasoning_effort == "low":
+                thinking_params = {"type": "enabled", "budget_tokens": 2048}
                 max_tokens_override = min(max(body.get("max_tokens", 0), 8192), model_def.get("max_output_tokens"))          # At least 8k tokens (and 4k reasoning budget)
-                thinking_params = {"type": "enabled", "budget_tokens": 4192}
                 generate_thinking_block = True
 
             elif reasoning_effort == "medium":
+                thinking_params = {"type": "enabled", "budget_tokens": 8192}
                 max_tokens_override = min(max(body.get("max_tokens", 0), 24000), model_def.get("max_output_tokens"))         # At least 24k tokens (and 16k reasoning budget)
-                thinking_params = {"type": "enabled", "budget_tokens": 16384}
                 generate_thinking_block = True
 
             elif reasoning_effort == "high":
-                max_tokens_override = min(max(body.get("max_tokens", 0), 48000), model_def.get("max_output_tokens"))         # At least 32k tokens (and 24k reasoning budget)
-                thinking_params = {"type": "enabled", "budget_tokens": round(max_tokens_override * 0.75)}
+                thinking_params = {"type": "enabled", "budget_tokens": 24000}
+                max_tokens_override = min(max(body.get("max_tokens", 0), 32000), model_def.get("max_output_tokens"))         # At least 32k tokens (and 24k reasoning budget)
                 generate_thinking_block = True
         
             elif not reasoning_effort or reasoning_effort == "none" or reasoning_effort == "off" or reasoning_effort == "disabled" or reasoning_effort == "false" or reasoning_effort == "no":
