@@ -401,7 +401,7 @@ class LiteLLMPipe:
 
                         if final_usage_stats:
                             if self.debug:
-                                print(f"{self.debug_logging_prefix} Final usage from API: input={final_usage_stats.get('prompt_tokens', 'N/A')}, output={final_usage_stats.get('completion_tokens', 'N/A')}")
+                                print(f"{self.debug_logging_prefix} Final usage from API: {final_usage_stats}")
                             
                             prompt_tok = final_usage_stats.get("prompt_tokens")
                             completion_tok = final_usage_stats.get("completion_tokens")

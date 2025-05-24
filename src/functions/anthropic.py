@@ -92,6 +92,11 @@ class Pipe:
 
         DEBUG: bool = Field(default=False, description="Display debugging messages")
 
+        ENABLE_CACHE_WRITING: bool = Field(
+            default=False, 
+            description="Enable Anthropic cache control on system message and last two user messages"
+        )
+
         LITELLM_SETTINGS: dict = Field(
             default={},
             description="LiteLLM provider-specific settings (e.g. API base, versions, extra headers)"
@@ -139,6 +144,49 @@ class Pipe:
             debug_logging_prefix=self.debug_logging_prefix,
             litellm_settings=self.valves.LITELLM_SETTINGS
         )
+
+    def _add_cache_control_to_message(self, message: dict, message_identifier: str):
+        """Add cache control to the last content block of a message"""
+        content = message.get("content")
+        
+        if isinstance(content, str):
+            # Convert string to content blocks format
+            content = [{"type": "text", "text": content}]
+            message["content"] = content
+        
+        if isinstance(content, list) and content:
+            last_content_block = content[-1]
+            last_content_block["cache_control"] = {"type": "ephemeral"}
+            if self.valves.DEBUG:
+                print(f"{self.debug_logging_prefix} Added cache control to {message_identifier}")
+
+    def _apply_cache_control(self, body: dict):
+        """Apply Anthropic cache control to system message and last two user messages"""
+        messages = body.get("messages", [])
+        if not messages:
+            return
+
+        if self.valves.DEBUG:
+            print(f"{self.debug_logging_prefix} Applying cache control to messages")
+
+        # Apply cache control to system message (if exists)
+        for i, message in enumerate(messages):
+            if message.get("role") == "system":
+                self._add_cache_control_to_message(message, f"system message {i}")
+                break  
+
+        # Find last two user messages (iterate backwards)
+        user_message_indices = []
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                user_message_indices.append(i)
+                if len(user_message_indices) == 2:
+                    break
+
+        # Apply cache control to last content block of each user message
+        for idx in user_message_indices:
+            message = messages[idx]
+            self._add_cache_control_to_message(message, f"user message {idx}")
 
     def pipes(self):
         return [
@@ -230,6 +278,10 @@ class Pipe:
                     body[key] = value
                     if self.valves.DEBUG:
                         print(f"{self.debug_logging_prefix} Added additional_body_param: {key}={value}")
+
+        # Apply cache control if enabled
+        if self.valves.ENABLE_CACHE_WRITING:
+            self._apply_cache_control(body)
 
         if self.valves.DEBUG:
             print(f"{self.debug_logging_prefix} Calling LiteLLM pipe with payload: {body}")
