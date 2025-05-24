@@ -20,13 +20,15 @@ AVAILABLE_MODELS = [
         "id": "claude-opus-4-20250514",
         "litellm_model_id": "anthropic/claude-opus-4-20250514",
         "name": "Claude 4 Opus",
-        "max_tokens": 16384,
+        "max_output_tokens": 32000,
+        "supports_extended_thinking": True,
     },
     {
         "id": "claude-opus-4-20250514-websearch",
         "litellm_model_id": "anthropic/claude-opus-4-20250514",
         "name": "Claude 4 Opus with Web Search",
-        "max_tokens": 16384,
+        "max_output_tokens": 32000,
+        "supports_extended_thinking": True,
         "additional_body_params": {
             "web_search_options": {
                 "search_context_size": "medium"
@@ -37,13 +39,15 @@ AVAILABLE_MODELS = [
         "id": "claude-sonnet-4-20250514",
         "litellm_model_id": "anthropic/claude-sonnet-4-20250514",
         "name": "Claude 4 Sonnet",
-        "max_tokens": 16384,
+        "max_output_tokens": 64000,
+        "supports_extended_thinking": True,
     },
     {
         "id": "claude-sonnet-4-20250514-websearch",
         "litellm_model_id": "anthropic/claude-sonnet-4-20250514",
         "name": "Claude 4 Sonnet with Web Search",
-        "max_tokens": 16384,
+        "max_output_tokens": 64000,
+        "supports_extended_thinking": True,
         "additional_body_params": {
             "web_search_options": {
                 "search_context_size": "medium"
@@ -54,19 +58,22 @@ AVAILABLE_MODELS = [
         "id": "claude-3-7-sonnet-20250219",
         "litellm_model_id": "anthropic/claude-3-7-sonnet-20250219",
         "name": "Claude 3.7 Sonnet",
-        "max_tokens": 16384,
+        "max_output_tokens": 64000,
+        "supports_extended_thinking": True,
     },
     {
         "id": "claude-3-5-sonnet-20241022",
         "litellm_model_id": "anthropic/claude-3-5-sonnet-20241022",
         "name": "Claude 3.5 Sonnet",
-        "max_tokens": 8192,
+        "max_output_tokens": 8192,
+        "supports_extended_thinking": False,
     },
     {
         "id": "claude-3-5-haiku-20241022",
         "litellm_model_id": "anthropic/claude-3-5-haiku-20241022",
         "name": "Claude 3.5 Haiku",
-        "max_tokens": 4096,
+        "max_output_tokens": 8192,
+        "supports_extended_thinking": False,
     }
 ]
 
@@ -175,10 +182,45 @@ class Pipe:
 
         body["stream_options"] = {"include_usage": True}
 
-        if body.get("reasoning_effort") is None and model_def.get("reasoning_effort"):
-            body["reasoning_effort"] = model_def.get("reasoning_effort")
 
-        body["generate_thinking_block"] = True if body.get("reasoning_effort") else False
+        # remove "reasoning_effort" from body
+        reasoning_effort = body.pop("reasoning_effort",  model_def.get("reasoning_effort", None))
+
+        thinking_params = {}
+        max_tokens_override = body.get("max_tokens", 4096)      # default max tokens
+        generate_thinking_block = False
+
+        if model_def.get("supports_extended_thinking"):
+            if reasoning_effort == "low":
+                max_tokens_override = min(max(body.get("max_tokens", 0), 8192), model_def.get("max_output_tokens"))          # At least 8k tokens (and 4k reasoning budget)
+                thinking_params = {"type": "enabled", "budget_tokens": 4192}
+                generate_thinking_block = True
+
+            elif reasoning_effort == "medium":
+                max_tokens_override = min(max(body.get("max_tokens", 0), 24000), model_def.get("max_output_tokens"))         # At least 24k tokens (and 16k reasoning budget)
+                thinking_params = {"type": "enabled", "budget_tokens": 16384}
+                generate_thinking_block = True
+
+            elif reasoning_effort == "high":
+                max_tokens_override = min(max(body.get("max_tokens", 0), 48000), model_def.get("max_output_tokens"))         # At least 32k tokens (and 24k reasoning budget)
+                thinking_params = {"type": "enabled", "budget_tokens": round(max_tokens_override * 0.75)}
+                generate_thinking_block = True
+        
+            elif not reasoning_effort or reasoning_effort == "none" or reasoning_effort == "off" or reasoning_effort == "disabled" or reasoning_effort == "false" or reasoning_effort == "no":
+                thinking_params = {"type": "disabled"}
+                generate_thinking_block = False
+            else:
+                raise ValueError(f"Unrecognized reasoning_effort: {reasoning_effort}")
+
+
+        if max_tokens_override:
+            body["max_tokens"] = max_tokens_override
+
+        if model_def.get("supports_extended_thinking") and thinking_params:
+            body["thinking"] = thinking_params
+            body["allowed_openai_params"]=['thinking']
+
+        body["generate_thinking_block"] = generate_thinking_block
 
         # Merge additional_body_params from model definition into request body
         additional_params = model_def.get("additional_body_params", {})
@@ -188,15 +230,6 @@ class Pipe:
                     body[key] = value
                     if self.valves.DEBUG:
                         print(f"{self.debug_logging_prefix} Added additional_body_param: {key}={value}")
-
-        # Ensure max_tokens is set (required by Anthropic API)
-        if "max_tokens" not in body and "max_completion_tokens" not in body:
-            for model_def in AVAILABLE_MODELS:
-                if model_def.get("id") == model_name_without_prefix:
-                    body["max_tokens"] = model_def.get("max_tokens", 4096)
-                    break
-            else:
-                body["max_tokens"] = 4096  # Default fallback
 
         if self.valves.DEBUG:
             print(f"{self.debug_logging_prefix} Calling LiteLLM pipe with payload: {body}")

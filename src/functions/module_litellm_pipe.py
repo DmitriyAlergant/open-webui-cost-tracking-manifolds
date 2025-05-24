@@ -166,8 +166,8 @@ class LiteLLMPipe:
                         async for chunk in response_stream:
                             first_chunk_received = True
 
-                            if self.debug:
-                                print(f"{self.debug_logging_prefix} Streaming Chunk: {chunk}")
+                            #if self.debug:
+                                #print(f"{self.debug_logging_prefix} Streaming Chunk: {chunk}")
 
                             # Handle usage-only chunks
                             if hasattr(chunk, 'usage') and chunk.usage and not chunk.choices:
