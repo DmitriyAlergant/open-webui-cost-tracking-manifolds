@@ -22,8 +22,7 @@ This implementation fully relies on Pipes (Manifolds) to wrap around the respons
 
 ## Requirements
 
-- Python 3.11+
-- OpenWebUI v0.4.0+
+- OpenWebUI v0.6.9+ - Anthropic manifold now depends on requirements installation (LiteLLM SDK), available in OWUI 0.6.9+
 
 ## Installation (Manual)
 
