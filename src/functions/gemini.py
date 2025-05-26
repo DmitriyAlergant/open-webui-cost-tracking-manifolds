@@ -1,5 +1,5 @@
 """
-title: Databricks Llama Manifold
+title: Google Gemini Manifold
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
@@ -16,35 +16,41 @@ MODULE_LITELLM_PIPE = "function_module_litellm_pipe"
 
 AVAILABLE_MODELS = [
     {
-        "id": "databricks-meta-llama-3-1-70b-instruct",
-        "litellm_model_id": "openai/databricks-meta-llama-3-1-70b-instruct",
-        "name": "databricks-meta-llama-3-1-70b-instruct",
-        "generate_thinking_block": False
+        "id": "gemini-2.5-pro",
+        "litellm_model_id": "gemini/gemini-2.5-pro-preview-05-06",
+        "name": "Gemini 2.5 Pro",
+        "generate_thinking_block": True
     },
     {
-        "id": "databricks-meta-llama-3-1-405b-instruct",
-        "litellm_model_id": "openai/databricks-meta-llama-3-1-405b-instruct",
-        "name": "databricks-meta-llama-3-1-405b-instruct",
-        "generate_thinking_block": False
+        "id": "gemini-2.5-flash",
+        "litellm_model_id": "gemini/gemini-2.5-pro-preview-05-06",
+        "name": "Gemini 2.5 Flash",
+        "generate_thinking_block": True
+    },
+    {
+        "id": "gemini-2.5-pro-exp",
+        "litellm_model_id": "gemini/gemini-2.5-pro-exp-03-25",
+        "name": "Gemini 2.5 Pro (free)",
+        "generate_thinking_block": True
     },
 ]
 
 class Pipe:
     class Valves(BaseModel):
-        DATABRICKS_SERVING_ENDPOINTS_BASE_URL: str = Field(
-            default="https://adb-..../serving-endpoints",
-            description="The base URL for Databricks Serving Endpoints.",
+        API_BASE_URL: str = Field(
+            default="https://generativelanguage.googleapis.com/v1beta/",
+            description="Base URL for OpenAI-compatible API endpoint",
         )
-        DATABRICKS_API_KEY: str = Field(
+        API_KEY: str = Field(
             default="",
-            description="API Key (typically, PAT token)",
+            description="Google Gemini API Key",
         )
         DEBUG: bool = Field(default=False, description="Display debugging messages")
 
     def __init__(self):
         self.type = "manifold"
-        self.id = "databricks"
-        self.name = "databricks/"
+        self.id = "google"
+        self.name = "google/"
         self.valves = self.Valves()
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
@@ -61,10 +67,10 @@ class Pipe:
         
         # Prepare isolated LiteLLM settings that won't affect other parts of the system
         litellm_settings = {}
-        if self.valves.DATABRICKS_API_KEY:
-            litellm_settings["api_key"] = self.valves.DATABRICKS_API_KEY
-        if self.valves.DATABRICKS_SERVING_ENDPOINTS_BASE_URL:
-            litellm_settings["base_url"] = self.valves.DATABRICKS_SERVING_ENDPOINTS_BASE_URL
+        if self.valves.API_KEY:
+            litellm_settings["api_key"] = self.valves.API_KEY
+        if self.valves.API_BASE_URL:
+            litellm_settings["base_url"] = self.valves.API_BASE_URL
         
         return module.LiteLLMPipe(
             debug=self.valves.DEBUG,

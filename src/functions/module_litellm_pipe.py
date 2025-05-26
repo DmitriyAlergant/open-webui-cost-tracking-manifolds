@@ -1,9 +1,9 @@
 """
-title: LiteLLM Pipe (Generic) with Cost Tracking
+title: LiteLLM Pipe Module (Generic)
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
-required_open_webui_version: 0.3.17
+required_open_webui_version: 0.6.9
 requirements: litellm==1.70.2
 license: MIT
 """

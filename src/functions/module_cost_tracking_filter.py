@@ -3,7 +3,7 @@ title: Cost Tracking Filter
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
-required_open_webui_version: 0.5.17
+required_open_webui_version: 0.5.0
 license: MIT
 """
 

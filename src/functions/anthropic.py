@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
 from typing import Union, Any, Awaitable, Callable
 import sys
-import os
 
 MODULE_LITELLM_PIPE = "function_module_litellm_pipe"
 
@@ -109,25 +108,6 @@ class Pipe:
         self.valves = self.Valves()
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
-        # Set environment variables for LiteLLM
-        self._update_environment_variables()
-
-    def _update_environment_variables(self):
-        """Update environment variables for LiteLLM from valves"""
-        if self.valves.ANTHROPIC_API_KEY:
-            os.environ["ANTHROPIC_API_KEY"] = self.valves.ANTHROPIC_API_KEY
-
-        if self.valves.ANTHROPIC_API_BASE:
-            os.environ["ANTHROPIC_API_BASE"] = self.valves.ANTHROPIC_API_BASE
-
-        # Set environment variables from LITELLM_SETTINGS
-        for key, value in self.valves.LITELLM_SETTINGS.items():
-            if key.endswith("_API_KEY") or key.endswith("_API_BASE") or key.endswith("_API_VERSION"):
-                if os.environ.get(key) != value:
-                    os.environ[key] = str(value)
-                    if self.valves.DEBUG:
-                        print(f"{self.debug_logging_prefix} Set/Updated env var from LITELLM_SETTINGS: {key}")
-
     def get_litellm_pipe(self):
         module_name = MODULE_LITELLM_PIPE
         if module_name not in sys.modules:
@@ -139,10 +119,20 @@ class Pipe:
         
         module = sys.modules[module_name]
         
+        # Prepare isolated LiteLLM settings that include API credentials
+        isolated_litellm_settings = self.valves.LITELLM_SETTINGS.copy()
+        
+        # Add API credentials directly to the settings if provided
+        if self.valves.ANTHROPIC_API_KEY:
+            isolated_litellm_settings["api_key"] = self.valves.ANTHROPIC_API_KEY
+        
+        if self.valves.ANTHROPIC_API_BASE:
+            isolated_litellm_settings["base_url"] = self.valves.ANTHROPIC_API_BASE
+        
         return module.LiteLLMPipe(
             debug=self.valves.DEBUG,
             debug_logging_prefix=self.debug_logging_prefix,
-            litellm_settings=self.valves.LITELLM_SETTINGS
+            litellm_settings=isolated_litellm_settings
         )
 
     def _add_cache_control_to_message(self, message: dict, message_identifier: str):
@@ -205,9 +195,6 @@ class Pipe:
         
         if self.valves.DEBUG:
             print(f"{self.debug_logging_prefix} LiteLLM Manifold received request body: {body}")
-
-        # Update environment variables in case valves were changed
-        self._update_environment_variables()
 
         # Get the model ID from the request
         full_model_id = body.get("model", "")
