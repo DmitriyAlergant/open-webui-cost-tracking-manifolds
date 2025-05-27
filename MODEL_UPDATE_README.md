@@ -52,15 +52,14 @@ The script automatically determines the appropriate logo based on model ID patte
 
 ## Usage
 
-### Update models from a single module
-```bash
-python update_models_in_openwebui.py openai
-```
+Usage:
+    python update_models_in_openwebui.py src/functions/openai.py
+    python update_models_in_openwebui.py src/functions/openai.py src/functions/anthropic.py
+    python update_models_in_openwebui.py -e .env.production src/functions/openai.py
+    python update_models_in_openwebui.py --env-file /path/to/custom.env src/functions/openai.py
+    python update_models_in_openwebui.py --model-order-file ./model_order.json src/functions/openai.py
+    python update_models_in_openwebui.py --pricing-module ./src/functions/pricing-data-module/module_usage_tracking_pricing_data.py src/functions/openai.py
 
-### Update models from multiple modules
-```bash
-python update_models_in_openwebui.py openai anthropic
-```
 
 ## What the Script Does
 

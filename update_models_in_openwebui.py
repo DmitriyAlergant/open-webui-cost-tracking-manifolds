@@ -43,12 +43,12 @@ the imported modules exist in the pricing_data dictionary of the specified modul
 If any model IDs are missing, the script stops execution and reports the missing models.
 
 Usage:
-    python update_models_in_openwebui.py openai
-    python update_models_in_openwebui.py openai anthropic
-    python update_models_in_openwebui.py -e .env.production openai
-    python update_models_in_openwebui.py --env-file /path/to/custom.env openai
-    python update_models_in_openwebui.py --model-order-file ./model_order.json openai
-    python update_models_in_openwebui.py --pricing-module ./src/functions/pricing-data-module/module_usage_tracking_pricing_data.py openai
+    python update_models_in_openwebui.py src/functions/openai.py
+    python update_models_in_openwebui.py src/functions/openai.py src/functions/anthropic.py
+    python update_models_in_openwebui.py -e .env.production src/functions/openai.py
+    python update_models_in_openwebui.py --env-file /path/to/custom.env src/functions/openai.py
+    python update_models_in_openwebui.py --model-order-file ./model_order.json src/functions/openai.py
+    python update_models_in_openwebui.py --pricing-module ./src/functions/pricing-data-module/module_usage_tracking_pricing_data.py src/functions/openai.py
 """
 
 import os
