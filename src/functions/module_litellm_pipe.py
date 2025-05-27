@@ -1,10 +1,10 @@
 """
-title: LiteLLM Pipe (Generic) with Cost Tracking
+title: LiteLLM Pipe Module (Generic)
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
-required_open_webui_version: 0.3.17
-requirements: litellm==1.70.2
+required_open_webui_version: 0.6.9
+requirements: litellm==1.71.1
 license: MIT
 """
 
@@ -19,21 +19,25 @@ from open_webui.utils.misc import get_messages_content
 
 import litellm
 
+import os
+
 
 MODULE_USAGE_TRACKING = "function_module_usage_tracking"
 
 class LiteLLMPipe:
 
-    def __init__(self, debug=False, debug_logging_prefix="", litellm_settings=None):
+    def __init__(self, debug=False, debug_logging_prefix="", litellm_settings=None, full_model_id=None, provider=None):
         self.debug = debug
         self.debug_logging_prefix = debug_logging_prefix
         self.litellm_settings = litellm_settings if litellm_settings else {}
+        self.full_model_id = full_model_id
+        self.provider = provider
+
+        os.environ['LITELLM_LOG'] = 'INFO'
         
-        # Configure LiteLLM settings - remove verbose mode to reduce excessive logging
-        # Only enable LiteLLM verbose logging if explicitly requested
-        # if self.debug and self.litellm_settings.get("enable_litellm_verbose", False):
-        
-        litellm.set_verbose = False
+        # if self.debug:
+        #     os.environ['LITELLM_LOG'] = 'DEBUG'
+        #     litellm._turn_on_debug()
 
     async def chat_completion(
         self,
@@ -57,14 +61,20 @@ class LiteLLMPipe:
         
         cost_tracker_module = sys.modules[cost_tracker_module_name]
 
-        model_for_cost_tracking = __metadata__.get("user_requested_model_id", body["model"])
+        model_for_cost_tracking = self.full_model_id or body["model"]
+
+       
+        # This should not hurt
+        if body["stream"]:
+            body["stream_options"] = {"include_usage": True}
 
         cost_tracking_manager = cost_tracker_module.CostTrackingManager(
             model=model_for_cost_tracking,
             __user__=__user__,
             __metadata__=__metadata__,
             task=__task__,
-            debug=self.debug
+            debug=self.debug,
+            provider=self.provider
         )
 
         # Prepare the payload for LiteLLM
@@ -166,8 +176,8 @@ class LiteLLMPipe:
                         async for chunk in response_stream:
                             first_chunk_received = True
 
-                            #if self.debug:
-                                #print(f"{self.debug_logging_prefix} Streaming Chunk: {chunk}")
+                            if self.debug:
+                                print(f"{self.debug_logging_prefix} Streaming Chunk: {chunk}")
 
                             # Handle usage-only chunks
                             if hasattr(chunk, 'usage') and chunk.usage and not chunk.choices:
@@ -405,16 +415,26 @@ class LiteLLMPipe:
                             
                             prompt_tok = final_usage_stats.get("prompt_tokens")
                             completion_tok = final_usage_stats.get("completion_tokens")
+                            reasoning_tok = final_usage_stats.get("completion_tokens_details", {}).get("reasoning_tokens")
 
                             if prompt_tok is not None:
                                 final_input_tokens_val = prompt_tok
                                 override_occurred = True
+
                             if completion_tok is not None:
                                 final_generated_tokens_val = completion_tok
                                 override_occurred = True
+
+                            if reasoning_tok is not None:
+                                final_reasoning_tokens_val = reasoning_tok
+
+                                if  "gemini" in self.full_model_id:
+                                    final_generated_tokens_val += reasoning_tok
+                                
+                                override_occurred = True
                             
                             if override_occurred and self.debug:
-                                print(f"{self.debug_logging_prefix} Using API token counts: Input={final_input_tokens_val}, Generated={final_generated_tokens_val}")
+                                print(f"{self.debug_logging_prefix} Using API token counts: Input={final_input_tokens_val}, Generated={final_generated_tokens_val}, Reasoning={final_reasoning_tokens_val}")
                         elif self.debug:
                              print(f"{self.debug_logging_prefix} Using calculated tokens: Input={final_input_tokens_val}, Generated={final_generated_tokens_val}, Reasoning={final_reasoning_tokens_val}")
 
