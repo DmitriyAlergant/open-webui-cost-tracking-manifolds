@@ -23,15 +23,15 @@ AVAILABLE_MODELS = [
     },
     {
         "id": "gemini-2.5-flash",
-        "litellm_model_id": "gemini/gemini-2.5-pro-preview-05-06",
+        "litellm_model_id": "gemini/gemini-2.5-flash-preview-05-20",
         "name": "Gemini 2.5 Flash",
-        "generate_thinking_block": True
+        "generate_thinking_block": True 
     },
     {
         "id": "gemini-2.5-pro-exp",
         "litellm_model_id": "gemini/gemini-2.5-pro-exp-03-25",
         "name": "Gemini 2.5 Pro (free)",
-        "generate_thinking_block": True
+        "generate_thinking_block": True 
     },
 ]
 
@@ -49,8 +49,8 @@ class Pipe:
 
     def __init__(self):
         self.type = "manifold"
-        self.id = "google"
-        self.name = "google/"
+        self.id = "gemini"
+        self.name = "gemini/"
         self.valves = self.Valves()
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
@@ -73,8 +73,6 @@ class Pipe:
         if self.valves.API_BASE_URL:
             #litellm_settings["base_url"] = self.valves.API_BASE_URL
             pass
-
-        print(litellm_settings)
         
         return module.LiteLLMPipe(
             debug=self.valves.DEBUG,
@@ -95,6 +93,7 @@ class Pipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
+
         
         # Retrieve the model ID suffix from the body
         full_model_id = body.get("model", "")
@@ -112,16 +111,31 @@ class Pipe:
         # Set generate_thinking_block based on model configuration
         body["generate_thinking_block"] = model_config.get("generate_thinking_block", False)
 
-        # Disable thinking for Gemini 2.5 flash models by default
-        if "gemini-2.5-flash" in model_id_without_prefix:
-            if ( body.get("reasoning_effort") is None or body.get("reasoning_effort") in ("none", "off", "disabled", "false", "no") ):
-                body["thinking"] = {"type": "disabled", "budget_tokens": 0}
-                body["allowed_openai_params"]=['thinking']
-                body.pop("reasoning_effort")
-            else:
-                body["generate_thinking_block"] = True
+        # Allow disabling thinking for Gemini 2.5 flash models, and disalbe by default
 
-        
+        if "gemini-2.5-flash" in model_id_without_prefix:
+
+            reasoning_effort = body.get("reasoning_effort")
+            if reasoning_effort is None or str(reasoning_effort).lower() in ("none", "off", "disabled", "false", "no"):
+
+                body["thinking"] = {"type": "disabled", "budget_tokens": 0}
+                body.pop("reasoning_effort") if body.get("reasoning_effort") else None
+                print ("Removing reasoning_effort from body")
+
+            body["generate_thinking_block"] = False # either thinking is dsiabled, or it is enabled but LiteLLM currently has a bug and will stream thoughts as normal text - so no block needed
+
+        if "gemini-2.5-pro" in model_id_without_prefix:
+
+            if body.get("reasoning_effort") and body.get("reasoning_effort") in ("low", "medium", "high"):
+                body["generate_thinking_block"] = False # LiteLLM currently has a bug and will stream thoughts as normal text. User will see thoughts. No block needed
+            else:
+                body["generate_thinking_block"] = True # Gemini 2.5 Pro will still be thinking but LiteLLM will not be returning thoughts 
+                body.pop("reasoning_effort") if body.get("reasoning_effort") else None
+                print ("Removing reasoning_effort from body")
+
+        if self.valves.DEBUG:
+            print("generate_thinking_block: ", body["generate_thinking_block"])       
+            print("reasoning_effort: ", body.get("reasoning_effort"))    
         
         url_model_id = model_config["litellm_model_id"].split("/", 1)[1] if "/" in model_config["litellm_model_id"] else model_config["litellm_model_id"]
 
