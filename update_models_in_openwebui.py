@@ -267,9 +267,9 @@ def get_logo_data_url(model_id: str, module_name: str = None) -> str:
     logo_filename = LOGO_MAPPING.get(provider, 'logo_openai.png')
     return load_logo_as_base64(logo_filename)
 
-def load_function_module(module_name: str) -> Optional[List[Dict[str, Any]]]:
+def load_function_module(module_path: str, module_name: str) -> Optional[List[Dict[str, Any]]]:
     """Load a function module and extract its AVAILABLE_MODELS."""
-    module_path = Path('src/functions') / f'{module_name}.py'
+    module_path = Path(module_path)
     
     if not module_path.exists():
         print(f"Error: Module file {module_path} not found")
@@ -578,12 +578,12 @@ def submit_model_order_config(config_file: str, token: str) -> bool:
         print(f"Error processing model order file: {e}")
         return False
 
-def process_module(module_name: str, token: str, pricing_data: Optional[Dict[str, Any]] = None) -> int:
+def process_module(module_path: str, module_name: str, token: str, pricing_data: Optional[Dict[str, Any]] = None) -> int:
     """Process all models in a function module."""
     print(f"\n🔄 Processing module: {module_name}")
     
     # Load the module and its models
-    available_models = load_function_module(module_name)
+    available_models = load_function_module(module_path, module_name)
     if not available_models:
         return 0
     
@@ -644,8 +644,11 @@ def main():
     total_success = 0
     failed_modules = []
     
-    for module_name in args.modules:
-        module_success = process_module(module_name, API_KEY, pricing_data)
+    for module_path in args.modules:
+        module_name = os.path.basename(module_path)
+        if module_name.endswith('.py'):
+            module_name = module_name[:-3]
+        module_success = process_module(module_path, module_name, API_KEY, pricing_data)
         if pricing_data is not None and module_success == 0:
             # If pricing validation was enabled and no models were processed, 
             # it means validation failed
