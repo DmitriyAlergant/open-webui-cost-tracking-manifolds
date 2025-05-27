@@ -49,6 +49,7 @@ vendor/
 .env
 .env.local
 .env.*.local
+.env*
 
 # Temporary files
 *.swp
@@ -57,8 +58,8 @@ vendor/
 
 .venv/
 
-src/functions/pricing-data-module/*
+src/functions/pricing-data-module/llm/*
 
-src/functions/aimediator.py
-src/functions/proxyapi.py
+src/functions/llm/*
+
 upload_*.sh

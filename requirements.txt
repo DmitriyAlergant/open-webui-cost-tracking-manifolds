@@ -6,6 +6,8 @@ idna==3.10
 python-dotenv==1.0.1
 requests==2.32.3
 urllib3==2.2.3
+pydantic
+fastapi
 
 
 # The functions themeselves depend on packages already available inside Open WebUI container, and need to be tested inside OpenWebUI. Local development is not anticipated.
