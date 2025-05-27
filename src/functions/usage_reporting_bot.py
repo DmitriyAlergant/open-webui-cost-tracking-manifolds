@@ -913,11 +913,20 @@ class Pipe:
                 {schema}
 
                 Note: the Task column is NULL for the regular chat requests; Task can be "title_generation", "tags_generation", "query_generation", "autocomplete_generation" made by the UI tool that accompany chats.
+                
                 Make a reasonable assumption about the users intention if they want information only from main chat completion requests (Task is NULL) or to include task usage. 
-                For costs summarization, typically all tasks can be included. If a breakdown by model is requested, probably only main chat completions should be included. 
-                For counting usage/requests, only main chat completions should be included. If unsure, consider building the report to separately highlight both numbers.
+                
+                For costs summarization, typically all tasks can be included. If a breakdown by model is requested,  only the main chat completions (task is NULL) should be included. 
+                
+                For counting usage/requests, only main chat completions (task is NULL) should be included. If unsure, consider building the report to separately highlight both numbers.
 
-                The query must start with SELECT and end with a semicolon. Generate only the SQL query, nothing else. Do not use WITH or CTE clauses.""")
+                Unless asked otherwise use "total_cost" column, as "display_cost" may be using artificially adjusted lower pricing for end-users to encounrage usage, or both (if so requested). Never use "display_cost" column alone.
+
+                Availability of JSON metadata->chat_id indicates web usage (chat_id is not NULL) vs API usage (chat_id is NULL).
+
+                Columns "provider", "last_updated_timestamp", "last_updated_status" were only added to the table approximately in end of May 2025.
+
+                The query must start with SELECT and end with a semicolon. Generate only the SQL query, nothing else. DO NOT use WITH or CTE clauses.""")
 
         try:
             # Create AsyncOpenAI client
