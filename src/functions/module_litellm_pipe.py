@@ -73,7 +73,6 @@ class LiteLLMPipe:
             __user__=__user__,
             __metadata__=__metadata__,
             task=__task__,
-            debug=self.debug,
             provider=self.provider
         )
 

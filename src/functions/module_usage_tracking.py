@@ -21,26 +21,41 @@ from decimal import Decimal
 from datetime import datetime
 from sqlalchemy import text
 from open_webui.internal.db import get_db, engine
+from pydantic import BaseModel, Field
+from open_webui.models.functions import Functions
 
-
-
-import tiktoken
-
+import tiktoken     
 
 MODULE_PRICING_DATA = "function_module_usage_tracking_pricing_data"
 
+MODULE_USAGE_TRACKING = "module_usage_tracking"
+
+
+
+def is_debug_valve_enabled():
+
+    module_valves_data = Functions.get_function_valves_by_id(MODULE_USAGE_TRACKING)
+
+    debug = module_valves_data.get("DEBUG", False) if module_valves_data else False
+
+    if debug:
+        print ("Module Usage Tracking: Debug valve is enabled")
+
+    return debug
+
+
 class Config:
-    DATA_DIR = "data"
-    USER_COST_FILE = DATA_DIR
     DECIMALS = "0.00000001"
     DEBUG_PREFIX = "DEBUG:    " + __name__ + " -"
     INFO_PREFIX = "INFO:     " + __name__ + " -"
     COMPENSATION = 1.0
 
 class UsagePersistenceManager:
-    def __init__(self, debug=False):
+    def __init__(self):
+
+        self.DEBUG = is_debug_valve_enabled
+
         self._init_db()
-        self.DEBUG = debug
 
     def _required_table_schemas(self):
 
@@ -332,8 +347,8 @@ class UsagePersistenceManager:
 
 class ModelCostManager:
 
-    def __init__(self, debug:bool = False):
-        self.DEBUG = debug
+    def __init__(self):
+        self.DEBUG = is_debug_valve_enabled()
         self.pricing_data = self._load_pricing_data()
 
     def _load_pricing_data(self):
@@ -418,13 +433,13 @@ class ModelCostManager:
 
 class CostCalculationManager:
 
-    def __init__(self, model: str, model_cost_manager: ModelCostManager, debug:bool = False):
+    def __init__(self, model: str, model_cost_manager: ModelCostManager):
 
         self.model = model
 
         self.model_cost_manager = model_cost_manager
 
-        self.DEBUG = debug
+        self.DEBUG = is_debug_valve_enabled()
 
         # Establish model pricing data
         (self.model_used_by_cost_calculation, self.model_pricing_data) = (
@@ -540,20 +555,20 @@ class CostCalculationManager:
 
 class CostTrackingManager:
 
-    def __init__(self, model: str, __user__: dict, __metadata__: dict, task: str, provider: str = None, debug: bool = False):
+    def __init__(self, model: str, __user__: dict, __metadata__: dict, task: str, provider: str = None):
         self.model = model
         self.__user__ = __user__
         self.__metadata__ = __metadata__
         self.task = task
         self.provider = provider
 
-        self.DEBUG = debug
+        self.DEBUG = is_debug_valve_enabled()
 
-        self.model_cost_manager = ModelCostManager (debug=debug)
+        self.model_cost_manager = ModelCostManager()
 
-        self.cost_calculation_manager = CostCalculationManager(model=model, model_cost_manager=self.model_cost_manager, debug=debug)
+        self.cost_calculation_manager = CostCalculationManager(model=model, model_cost_manager=self.model_cost_manager)
 
-        self.usage_persistence_manager = UsagePersistenceManager(debug=debug)
+        self.usage_persistence_manager = UsagePersistenceManager()
 
         self.chat_id = self.__metadata__.get("chat_id")
         self.session_id = self.__metadata__.get("session_id")
@@ -781,12 +796,20 @@ class CostTrackingManager:
 
 # For OpenWebUI to accept this as a Function Module, there has to be a Filter or Pipe or Action class
 class Pipe:
+    class Valves(BaseModel):
+        DEBUG: bool = Field(default=False, description="Enable debug logging for usage tracking.")
+
     def __init__(self):
         self.type = "manifold"
-        self.id = "usage-tracking-util"
+        self.id = "module_usage_tracking"
         self.name = "Usage Tracking Util"
+        self.valves = self.Valves()
+
+        print ("module usage tracking  Pipe init")
         
         pass
+
+    
 
     def pipes(self) -> list[dict]:
         return []
