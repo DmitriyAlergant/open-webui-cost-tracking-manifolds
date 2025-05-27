@@ -48,7 +48,7 @@ class Pipe:
         self.valves = self.Valves()
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
-    def get_litellm_pipe(self):
+    def get_litellm_pipe(self, full_model_id=None, provider=None):
         module_name = MODULE_LITELLM_PIPE
         if module_name not in sys.modules:
             try:
@@ -70,6 +70,8 @@ class Pipe:
             debug=self.valves.DEBUG,
             debug_logging_prefix=self.debug_logging_prefix,
             litellm_settings=litellm_settings,
+            full_model_id=full_model_id,
+            provider=provider
         )
 
     def pipes(self):
@@ -83,27 +85,33 @@ class Pipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
-
-        # Find the model configuration
-        model_id = body.get("model", "").split(".", 1)[-1]  # Remove prefix if present
-        model_config = next((m for m in AVAILABLE_MODELS if m["id"] == model_id), None)
         
-        if not model_config:
+        full_model_id = body.get("model", "")
+
+        model_name_without_prefix = full_model_id.split(f"{self.id}.", 1)[1] if f"{self.id}." in full_model_id else full_model_id
+
+        model_def = None
+        
+        for model_def_candidate in AVAILABLE_MODELS:
+            if model_def_candidate.get("id") == model_name_without_prefix:
+                model_def = model_def_candidate
+                break
+        
+        if not model_def:
             raise ValueError(f"Model {model_id} not found in available models")
 
-        # Update the body with the LiteLLM model ID
-        body["model"] = model_config["litellm_model_id"]
+        body["model"] = model_def["litellm_model_id"]
         
-        # Set generate_thinking_block based on model configuration
-        body["generate_thinking_block"] = model_config.get("generate_thinking_block", False)
+        body["generate_thinking_block"] = model_def.get("generate_thinking_block", False)
 
         if body["stream"]:
             body["stream_options"] = {"include_usage": True}
 
-        return await self.get_litellm_pipe().chat_completion(
-            body=body,
-            __user__=__user__,
-            __metadata__=__metadata__,
-            __event_emitter__=__event_emitter__,
-            __task__=__task__,
-        )
+        return await self.get_litellm_pipe(full_model_id=full_model_id, provider="deepseek") \
+                .chat_completion(
+                        body=body,
+                        __user__=__user__,
+                        __metadata__=__metadata__,
+                        __event_emitter__=__event_emitter__,
+                        __task__=__task__
+                    )

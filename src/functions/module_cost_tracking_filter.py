@@ -16,6 +16,10 @@ import json
 
 MODULE_USAGE_TRACKING = "function_module_usage_tracking"
 
+# This filter can work on top of basic out-of-the-box integrations with OpenAI (not through manifolder).
+# However, it only works with Web UI chat requests, and API streaming (which are rarely used)
+# Batch API requests do not currently call outlet filters, so these costs would not be tracked.
+
 class Filter:
     class Valves(BaseModel):
         DEBUG: bool = Field(

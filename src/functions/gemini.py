@@ -10,7 +10,7 @@ license: MIT
 from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
 from typing import Union, Any, Awaitable, Callable
-import sys
+import sys,os
 
 MODULE_LITELLM_PIPE = "function_module_litellm_pipe"
 
@@ -38,7 +38,7 @@ AVAILABLE_MODELS = [
 class Pipe:
     class Valves(BaseModel):
         API_BASE_URL: str = Field(
-            default="https://generativelanguage.googleapis.com/v1beta/",
+            default="https://generativelanguage.googleapis.com",
             description="Base URL for OpenAI-compatible API endpoint",
         )
         API_KEY: str = Field(
@@ -54,7 +54,7 @@ class Pipe:
         self.valves = self.Valves()
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
-    def get_litellm_pipe(self):
+    def get_litellm_pipe(self, full_model_id=None, url_model_id=None, provider=None):
         module_name = MODULE_LITELLM_PIPE
         if module_name not in sys.modules:
             try:
@@ -69,13 +69,19 @@ class Pipe:
         litellm_settings = {}
         if self.valves.API_KEY:
             litellm_settings["api_key"] = self.valves.API_KEY
+            os.environ["GEMINI_API_KEY"] = self.valves.API_KEY
         if self.valves.API_BASE_URL:
-            litellm_settings["base_url"] = self.valves.API_BASE_URL
+            #litellm_settings["base_url"] = self.valves.API_BASE_URL
+            pass
+
+        print(litellm_settings)
         
         return module.LiteLLMPipe(
             debug=self.valves.DEBUG,
             debug_logging_prefix=self.debug_logging_prefix,
             litellm_settings=litellm_settings,
+            full_model_id=full_model_id,
+            provider=provider
         )
 
     def pipes(self):
@@ -106,13 +112,24 @@ class Pipe:
         # Set generate_thinking_block based on model configuration
         body["generate_thinking_block"] = model_config.get("generate_thinking_block", False)
 
-        if body["stream"]:
-            body["stream_options"] = {"include_usage": True}
+        # Disable thinking for Gemini 2.5 flash models by default
+        if "gemini-2.5-flash" in model_id_without_prefix:
+            if ( body.get("reasoning_effort") is None or body.get("reasoning_effort") in ("none", "off", "disabled", "false", "no") ):
+                body["thinking"] = {"type": "disabled", "budget_tokens": 0}
+                body["allowed_openai_params"]=['thinking']
+                body.pop("reasoning_effort")
+            else:
+                body["generate_thinking_block"] = True
+
         
-        return await self.get_litellm_pipe().chat_completion(
-            body=body,
-            __user__=__user__,
-            __metadata__=__metadata__,
-            __event_emitter__=__event_emitter__,
-            __task__=__task__,
-        )
+        
+        url_model_id = model_config["litellm_model_id"].split("/", 1)[1] if "/" in model_config["litellm_model_id"] else model_config["litellm_model_id"]
+
+        return await self.get_litellm_pipe(full_model_id=full_model_id, url_model_id=url_model_id, provider="gemini") \
+                            .chat_completion(
+                                    body=body,
+                                    __user__=__user__,
+                                    __metadata__=__metadata__,
+                                    __event_emitter__=__event_emitter__,
+                                    __task__=__task__
+                                )

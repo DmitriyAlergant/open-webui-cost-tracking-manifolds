@@ -59,5 +59,6 @@ vendor/
 
 src/functions/pricing-data-module/*
 
-src/functions/aim*
+src/functions/aimediator.py
+src/functions/proxyapi.py
 upload_*.sh

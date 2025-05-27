@@ -16,7 +16,7 @@ pricing_data = {
         "token_units": 1000000,
         "cost_currency": "USD",
     },  
-    "gemini-2.5-pro-preview": {
+    "gemini-2.5-pro": {
         "input_cost_per_token": 1.5,            # blend of short-context and long-context (>200K) price
         "output_cost_per_token": 12,            
         "input_display_cost_per_token": 1.5,
@@ -24,7 +24,7 @@ pricing_data = {
         "token_units": 1000000,
         "cost_currency": "USD",
     },  
-    "gemini-2.5-flash-preview": {
+    "gemini-2.5-flash": {
         "input_cost_per_token": 0.15,
         "output_cost_per_token": 1.2,           # blend of thinking and non-thinking tokens price
         "input_display_cost_per_token": 0.15,

@@ -66,7 +66,7 @@ class Pipe:
         self.valves = self.Valves()
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
-    def get_litellm_pipe(self):
+    def get_litellm_pipe(self, full_model_id=None, provider=None):
         module_name = MODULE_LITELLM_PIPE
         if module_name not in sys.modules:
             try:
@@ -88,6 +88,8 @@ class Pipe:
             debug=self.valves.DEBUG,
             debug_logging_prefix=self.debug_logging_prefix,
             litellm_settings=litellm_settings,
+            full_model_id=full_model_id,
+            provider=provider
         )
 
     def pipes(self):
@@ -121,10 +123,10 @@ class Pipe:
         if body["stream"]:
             body["stream_options"] = {"include_usage": True}
         
-        return await self.get_litellm_pipe().chat_completion(
+        return await self.get_litellm_pipe(full_model_id=full_model_id, provider="openrouter").chat_completion(
             body=body,
             __user__=__user__,
             __metadata__=__metadata__,
             __event_emitter__=__event_emitter__,
-            __task__=__task__,
+            __task__=__task__
         )
