@@ -18,97 +18,97 @@ AVAILABLE_MODELS = [
     {
         "id": "o3",
         "litellm_model_id": "openai/o3",
-        "name": "o3",
+        "name": "OpenAI o3",
         "generate_thinking_block": True
     },
     {
         "id": "o1",
         "litellm_model_id": "openai/o1",
-        "name": "o1",
+        "name": "OpenAI o1",
         "generate_thinking_block": True
     },
     {
         "id": "o4-mini",
         "litellm_model_id": "openai/o4-mini",
-        "name": "o4-mini",
+        "name": "OpenAI o4-mini",
         "generate_thinking_block": True
     },
     {
         "id": "o3-mini",
         "litellm_model_id": "openai/o3-mini",
-        "name": "o3-mini",
+        "name": "OpenAI o3-mini",
         "generate_thinking_block": True
     },
     {
         "id": "o1-mini",
         "litellm_model_id": "openai/o1-mini",
-        "name": "o1-mini",
+        "name": "OpenAI o1-mini",
         "generate_thinking_block": True
     },
     {
         "id": "gpt-4o-mini",
         "litellm_model_id": "openai/gpt-4o-mini",
-        "name": "gpt-4o-mini",
+        "name": "OpenAI gpt-4o-mini",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4.1",
         "litellm_model_id": "openai/gpt-4.1",
-        "name": "gpt-4.1",
+        "name": "OpenAI gpt-4.1",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4.1-mini",
         "litellm_model_id": "openai/gpt-4.1-mini",
-        "name": "gpt-4.1-mini",
+        "name": "OpenAI gpt-4.1-mini",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4.1-nano",
         "litellm_model_id": "openai/gpt-4.1-nano",
-        "name": "gpt-4.1-nano",
+        "name": "OpenAI gpt-4.1-nano",
         "generate_thinking_block": False
     },
     {
         "id": "chatgpt-4o-latest",
         "litellm_model_id": "openai/chatgpt-4o-latest",
-        "name": "chatgpt-4o-latest",
+        "name": "OpenAI chatgpt-4o-latest",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4o",
         "litellm_model_id": "openai/gpt-4o",
-        "name": "gpt-4o",
+        "name": "OpenAI gpt-4o",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4o-2024-05-13",
         "litellm_model_id": "openai/gpt-4o-2024-05-13",
-        "name": "gpt-4o-2024-05-13",
+        "name": "OpenAI gpt-4o-2024-05-13",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4o-2024-08-06",
         "litellm_model_id": "openai/gpt-4o-2024-08-06",
-        "name": "gpt-4o-2024-08-06",
+        "name": "OpenAI gpt-4o-2024-08-06",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4o-2024-11-20",
         "litellm_model_id": "openai/gpt-4o-2024-11-20",
-        "name": "gpt-4o-2024-11-20",
+        "name": "OpenAI gpt-4o-2024-11-20",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4-turbo",
         "litellm_model_id": "openai/gpt-4-turbo",
-        "name": "gpt-4-turbo",
+        "name": "OpenAI gpt-4-turbo",
         "generate_thinking_block": False
     },
     {
         "id": "gpt-4.5-preview",
         "litellm_model_id": "openai/gpt-4.5-preview",
-        "name": "gpt-4.5-preview",
+        "name": "OpenAI gpt-4.5-preview",
         "generate_thinking_block": False
     },
 ]

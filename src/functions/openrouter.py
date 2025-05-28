@@ -18,32 +18,38 @@ AVAILABLE_MODELS = [
     {
         "id": "gemini-2.5-pro-preview",
         "litellm_model_id": "openrouter/google/gemini-2.5-pro-preview",
-        "name": "gemini-2.5-pro-preview",
+        "name": "Gemini 2.5 Pro via OpenRouter",
         "generate_thinking_block": True
     },
     {
         "id": "gemini-2.5-flash-preview-05-20",
         "litellm_model_id": "openrouter/google/gemini-2.5-flash-preview-05-20",
-        "name": "gemini-2.5-flash-preview-05-20",
+        "name": "Gemini 2.5 Flash via OpenRouter",
         "generate_thinking_block": True
     },
     {
         "id": "x-ai/grok-3-beta",
         "litellm_model_id": "openrouter/x-ai/grok-3-beta",
-        "name": "grok-3-beta",
+        "name": "Grok 3",
         "generate_thinking_block": False
     },
     {
         "id": "deepseek/deepseek-r1",
         "litellm_model_id": "openrouter/deepseek/deepseek-r1",
-        "name": "deepseek-r1",
+        "name": "Deepseek R1 2005-01-20",
         "generate_thinking_block": True
     },
     {
         "id": "deepseek/deepseek-chat-v3-0324",
         "litellm_model_id": "openrouter/deepseek/deepseek-chat-v3-0324",
-        "name": "deepseek-chat-v3-0324",
+        "name": "Deepseek Chat v3 2025-03-24",
         "generate_thinking_block": False
+    },
+    {
+        "id": "deepseek/deepseek-r1-0528",
+        "litellm_model_id": "openrouter/deepseek/deepseek-r1-0528",
+        "name": "Deepseek R1 2025-05-28",
+        "generate_thinking_block": True
     }
 ]
 
