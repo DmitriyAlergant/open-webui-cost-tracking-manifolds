@@ -7,30 +7,6 @@
 ehthumbs.db
 Thumbs.db
 
-# IDE files
-.idea/
-.vscode/
-*.sublime-project
-*.sublime-workspace
-
-# Compiled source
-*.com
-*.class
-*.dll
-*.exe
-*.o
-*.so
-
-# Packages
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
 # Logs and databases
 *.log
 *.sql
@@ -40,6 +16,9 @@ Thumbs.db
 build/
 dist/
 out/
+
+# Logs
+logs
 
 # Dependency directories
 node_modules/
@@ -56,8 +35,11 @@ vendor/
 *.swo
 *~
 
+# venv
 .venv/
 
+# Custom configuration for another deployment (standalone repo)
 src/functions/gb-llm/*
 
+# Sensitive scripts that contain API keys (wrappers around deploy_to_openwebui.sh)
 upload_*.sh
