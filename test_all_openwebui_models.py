@@ -38,12 +38,7 @@ def get_available_models(api_url, api_key):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         models_data = response.json()
-        
-        # Debug: print the response structure
-        print(f"🔍 Models API response type: {type(models_data)}")
-        if isinstance(models_data, dict):
-            print(f"🔍 Response keys: {list(models_data.keys())}")
-        
+                
         # Extract model IDs from the response
         models = []
         if isinstance(models_data, dict) and 'data' in models_data:

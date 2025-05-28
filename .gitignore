@@ -58,8 +58,6 @@ vendor/
 
 .venv/
 
-src/functions/pricing-data-module/llm/*
-
-src/functions/llm/*
+src/functions/gb-llm/*
 
 upload_*.sh

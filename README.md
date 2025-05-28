@@ -124,3 +124,22 @@ python update_models_in_openwebui.py --pricing-module ./src/functions/module_usa
 # Upload models ordering list
 python update_models_in_openwebui.py -env .env.local --model-order-file ./model_order_list.json
 ```
+
+### 8. Test all deployed OpenWebUI models (automation)
+
+```bash
+python test_all_openwebui_models.py --env .env.local
+```
+
+Example Output
+
+```log
+🚀 Testing models on http://localhost:3000
+============================================================
+✅ Found 78 available models
+[1/78] Testing anthropic.claude-opus-4-20250514...
+✅ anthropic.claude-opus-4-20250514 is working
+[2/78] Testing anthropic.claude-sonnet-4-20250514-websearch...
+✅ anthropic.claude-sonnet-4-20250514-websearch is working
+[3/78] Testing anthropic.claude-sonnet-4-20250514...
+```
