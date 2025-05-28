@@ -133,7 +133,9 @@ LOGO_MAPPING = {
     'gemini': 'logo_gemini.png',
     'deepseek': 'logo_deepseek.png',
     'grok': 'logo_grok.png',
-    'meta': 'logo_meta.png'
+    'meta': 'logo_meta.png',
+    'yandexgpt': 'logo_yandexgpt.png',
+    'databricks': 'logo_databricks.png'
 }
 
 def parse_logo_overrides() -> Dict[str, str]:
@@ -199,9 +201,9 @@ def load_logo_as_base64(logo_filename: str) -> str:
 def determine_logo_provider(model_id: str) -> str:
     """Determine the logo provider based on model ID patterns."""
     model_id_lower = model_id.lower()
-    
+
     # OpenAI patterns
-    if any(pattern in model_id_lower for pattern in ['gpt', 'o1', 'o3', 'o4', 'chatgpt']):
+    if "yandex" not in model_id_lower and any(pattern in model_id_lower for pattern in ['gpt', 'o1', 'o3', 'o4', 'chatgpt']):
         return 'openai'
     
     # Check for models starting with 'o' followed by digit (OpenAI pattern)
@@ -220,6 +222,12 @@ def determine_logo_provider(model_id: str) -> str:
     if 'deepseek' in model_id_lower:
         return 'deepseek'
     
+    if 'yandex' in model_id_lower:
+        return 'yandexgpt'
+    
+    if 'databricks' in model_id_lower:
+        return 'databricks'
+    
     # Grok patterns
     if 'grok' in model_id_lower:
         return 'grok'
@@ -227,7 +235,6 @@ def determine_logo_provider(model_id: str) -> str:
     # Meta patterns
     if any(pattern in model_id_lower for pattern in ['llama', 'meta']):
         return 'meta'
-    
     # Default fallback
     return 'openai'
 

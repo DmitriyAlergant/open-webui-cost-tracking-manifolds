@@ -16,6 +16,8 @@ import re
 from typing import Union, Any, Awaitable, Callable, List
 from fastapi.responses import StreamingResponse
 from open_webui.utils.misc import get_messages_content
+from open_webui.models.functions import Functions
+from pydantic import BaseModel, Field
 
 import litellm
 
@@ -23,11 +25,22 @@ import os
 
 
 MODULE_USAGE_TRACKING = "function_module_usage_tracking"
+MODULE_LITELLM_PIPE = "module_litellm_pipe"
+
+def is_debug_valve_enabled():
+    """Check if debug valve is enabled for this module"""
+    module_valves_data = Functions.get_function_valves_by_id(MODULE_LITELLM_PIPE)
+    debug = module_valves_data.get("DEBUG", False) if module_valves_data else False
+    
+    if debug:
+        print("LiteLLM Pipe Module: Debug valve is enabled")
+    
+    return debug
 
 class LiteLLMPipe:
 
-    def __init__(self, debug=False, debug_logging_prefix="", litellm_settings=None, full_model_id=None, provider=None):
-        self.debug = debug
+    def __init__(self, debug, debug_logging_prefix="", litellm_settings=None, full_model_id=None, provider=None):
+        self.debug = is_debug_valve_enabled()
         self.debug_logging_prefix = debug_logging_prefix
         self.litellm_settings = litellm_settings if litellm_settings else {}
         self.full_model_id = full_model_id
@@ -123,6 +136,8 @@ class LiteLLMPipe:
                     response_stream = None
                     last_update_time = 0
                     stream_completed_successfully = False
+                    stream_error_occurred = False
+                    
                     first_chunk_received = False
                     # Citation buffering
                     pending_citations = []
@@ -351,6 +366,8 @@ class LiteLLMPipe:
 
                     except Exception as e:
                         stream_completed_successfully = False
+                        stream_error_occurred = True
+
                         _, _, tb = sys.exc_info()
                         line_number = tb.tb_lineno
                         error_message = f"Error in LiteLLM stream_generator on line {line_number}: {e}"
@@ -371,23 +388,23 @@ class LiteLLMPipe:
                             user_friendly_error = "Could not connect to the API. Please check your network connection."
                             error_type = "connection_error"
                         
-                        try:
-                            # Close any open thinking block before yielding error
-                            if is_thinking_block_active:
-                                think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>\n\n"}}]}
-                                yield f"data: {json.dumps(think_end_json)}\n\n"
-                                is_thinking_block_active = False
+                        # try:
+                        #     # Close any open thinking block before yielding error
+                        #     if is_thinking_block_active:
+                        #         think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>\n\n"}}]}
+                        #         yield f"data: {json.dumps(think_end_json)}\n\n"
+                        #         is_thinking_block_active = False
                             
-                            # Yield user-friendly error message to client
-                            error_json = {
-                                "choices": [{"index": 0, "delta": {"content": f"**Error:** {user_friendly_error}"}}],
-                                "error": error_message,
-                                "type": error_type
-                            }
-                            yield f"data: {json.dumps(error_json)}\n\n"
-                            yield "data: [DONE]\n\n"
-                        except Exception as yield_err:
-                            print(f"Error yielding error message to client: {yield_err}")
+                        #     # Yield user-friendly error message to client
+                        #     error_json = {
+                        #         "choices": [{"index": 0, "delta": {"content": f"**Error:** {user_friendly_error}"}}],
+                        #         "error": error_message,
+                        #         "type": error_type
+                        #     }
+                        #     yield f"data: {json.dumps(error_json)}\n\n"
+                        #     yield "data: [DONE]\n\n"
+                        # except Exception as yield_err:
+                        #     print(f"Error yielding error message to client: {yield_err}")
                         
                         # Re-raise the exception so it can be caught by the outer handler
                         # This ensures OpenWebUI gets proper error handling
@@ -447,7 +464,7 @@ class LiteLLMPipe:
                             reasoning_tokens=final_reasoning_tokens_val,
                             start_time=start_time,
                             __event_emitter__=__event_emitter__,
-                            status="Completed" if stream_completed_successfully else "Stopped",
+                            status="Completed" if stream_completed_successfully else "Error" if stream_error_occurred else "Stopped",
                             persist_usage=True,
                             context_messages_count=len(body["messages"]),
                             web_search_requests_count=web_search_requests_count
@@ -612,11 +629,14 @@ class LiteLLMPipe:
 
 # Minimal Pipe class for OpenWebUI to recognize this as a loadable module
 class Pipe:
+    class Valves(BaseModel):
+        DEBUG: bool = Field(default=False, description="Enable debug logging for LiteLLM Pipe module.")
+
     def __init__(self):
         self.type = "manifold_helper"
         self.id = "litellm_pipe_module"
         self.name = "LiteLLM Pipe Shared Module"
-        pass
+        self.valves = self.Valves()
 
     def pipes(self) -> list[dict]:
         return [] 

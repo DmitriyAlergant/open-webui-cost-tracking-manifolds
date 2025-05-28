@@ -53,7 +53,7 @@ class Config:
 class UsagePersistenceManager:
     def __init__(self):
 
-        self.DEBUG = is_debug_valve_enabled
+        self.DEBUG = is_debug_valve_enabled()
 
         self._init_db()
 
@@ -241,7 +241,7 @@ class UsagePersistenceManager:
 
                 if self.DEBUG:
                     print(
-                        f"{Config.DEBUG_PREFIX} Persisted usage cost record for user {user_email}, model {model}, task {task}, input tokens {input_tokens}, output_tokens {output_tokens}, reasoning_tokens {reasoning_tokens}, total_cost {total_cost}, display_cost {display_cost}, model_used_by_cost_calculation {model_used_by_cost_calculation}, web_search_requests {web_search_requests}, provider {provider}, last_updated_status {last_updated_status}"
+                        f"{Config.INFO_PREFIX} Persisted usage cost record for user {user_email}, model {model}, task {task}, input tokens {input_tokens}, output_tokens {output_tokens}, reasoning_tokens {reasoning_tokens}, total_cost {total_cost}, display_cost {display_cost}, model_used_by_cost_calculation {model_used_by_cost_calculation}, web_search_requests {web_search_requests}, provider {provider}, last_updated_status {last_updated_status}"
                     )
 
             except Exception as e:
@@ -390,7 +390,7 @@ class ModelCostManager:
                     longest_match_length = match_length
                     best_match = key
 
-        print (f"{Config.DEBUG_PREFIX} _find_best_match: normalized_query: {normalized_query}, best_match: {best_match}")
+        print (f"{Config.INFO_PREFIX} _find_best_match: normalized_query: {normalized_query}, best_match: {best_match}")
 
         return best_match
 

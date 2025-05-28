@@ -133,7 +133,7 @@ class Pipe:
                 body.pop("reasoning_effort") if body.get("reasoning_effort") else None
                 print ("Removing reasoning_effort from body")
 
-        if self.valves.DEBUG:
+        if self.valves.DEBUG and "gemini" in model_id_without_prefix:
             print("generate_thinking_block: ", body["generate_thinking_block"])       
             print("reasoning_effort: ", body.get("reasoning_effort"))    
         
