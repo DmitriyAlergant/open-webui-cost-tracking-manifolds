@@ -20,6 +20,8 @@ out/
 # Logs
 logs
 
+__pycache__
+
 # Dependency directories
 node_modules/
 vendor/

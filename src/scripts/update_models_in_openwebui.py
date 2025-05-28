@@ -105,8 +105,12 @@ load_environment(args.env_file)
 
 # Configuration
 API_URL = os.getenv('OPENWEBUI_API_URL', 'http://localhost:3000')
+
 API_KEY = os.getenv('OPENWEBUI_API_KEY')
-SYSTEM_PROMPT = os.getenv('SYSTEM_PROMPT', '')
+
+SYSTEM_PROMPT = os.getenv('SYSTEM_PROMPT', 'You are a helpful assistant that can answer questions and help with tasks.')
+
+WEB_SEARCH_SYSTEM_PROMPT_ADDITION = os.getenv('WEB_SEARCH_SYSTEM_PROMPT_ADDITION', '''Use web_search tool only when information is beyond your knowledge cutoff, the topic is rapidly changing, or the query requires real-time data. You answer from your own extensive knowledge first for stable information. For time-sensitive topics or when users explicitly need current information, search immediately. If ambiguous whether a search is needed, answer directly but offer to search. You intelligently adapt your search approach based on the complexity of the query, dynamically scaling from 0 searches when you can answer using your own knowledge to thorough research with over 5 tool calls for complex queries. ''')
 
 # Logo mapping based on model ID patterns
 LOGO_MAPPING = {
@@ -481,7 +485,10 @@ def build_model_data(model: Dict[str, Any], module_name: str, existing_model: Op
     # Add system prompt if provided in the env variable
     if SYSTEM_PROMPT:
         new_model_data["params"]["system"] = SYSTEM_PROMPT
-    
+
+    if "search" in model['id'] and WEB_SEARCH_SYSTEM_PROMPT_ADDITION:
+        new_model_data["params"]["system"] += "\n\n" + WEB_SEARCH_SYSTEM_PROMPT_ADDITION
+
     # Merge recursively with existing data preserving what we're not overriding
     if existing_model:
         model_data = merge_preserve_existing(new_model_data, existing_model)

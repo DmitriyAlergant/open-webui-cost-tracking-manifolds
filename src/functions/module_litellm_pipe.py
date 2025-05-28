@@ -225,42 +225,105 @@ class LiteLLMPipe:
                                                     if self.debug:
                                                         print(f"{self.debug_logging_prefix} Citation: {title[:50]}{'...' if len(title) > 50 else ''} - {url}")
 
-                            delta = chunk.choices[0].delta
-                            actual_content = delta.content or ""
+                            # Process thinking/reasoning content from any choice (typically index 0 for Anthropic)
+                            reasoning_content_found = ""
+                            thinking_blocks_text_found = ""
+                            
+                            for choice in chunk.choices:
+                                if not hasattr(choice, 'delta'):
+                                    continue
+                                    
+                                delta = choice.delta
+                                
+                                # Check for reasoning content from the chunk
+                                reasoning_content = getattr(delta, 'reasoning_content', None)
+                                if not reasoning_content and hasattr(choice, 'message'):
+                                    reasoning_content = getattr(choice.message, 'reasoning_content', None)
+                                
+                                # Also check for thinking_blocks
+                                thinking_blocks_text = ""
+                                thinking_blocks = getattr(delta, 'thinking_blocks', None)
+                                if not thinking_blocks and hasattr(choice, 'message'):
+                                    thinking_blocks = getattr(choice.message, 'thinking_blocks', None)
+                                
+                                if thinking_blocks:
+                                    for tb in thinking_blocks:
+                                        if isinstance(tb, dict) and tb.get('type') == 'thinking' and tb.get('thinking'):
+                                            thinking_blocks_text += tb['thinking']
+
+                                if reasoning_content:
+                                    reasoning_content_found += reasoning_content
+                                if thinking_blocks_text:
+                                    thinking_blocks_text_found += thinking_blocks_text
+
+                            effective_thinking_text = reasoning_content_found or thinking_blocks_text_found
+
+                            if effective_thinking_text:
+                                if self.debug:
+                                    print(f"{self.debug_logging_prefix} Reasoning content: {len(effective_thinking_text)} chars")
+                                
+                                if not is_thinking_block_active:
+                                    think_start_json = {"choices": [{"index": 0, "delta": {"content": "<think>"}}]}
+                                    yield f"data: {json.dumps(think_start_json)}\n\n"
+                                    is_thinking_block_active = True
+                                
+                                thinking_content_buffer += effective_thinking_text
+                                think_delta_json = {"choices": [{"index": 0, "delta": {"content": effective_thinking_text}}]}
+                                yield f"data: {json.dumps(think_delta_json)}\n\n"
+
+                            # Process actual response content from any choice (could be index 0, 1, etc.)
+                            actual_content_found = ""
+                            tool_calls_found = []
+                            
+                            for choice in chunk.choices:
+                                if not hasattr(choice, 'delta'):
+                                    continue
+                                    
+                                delta = choice.delta
+                                choice_content = delta.content or ""
+                                
+                                if choice_content:
+                                    actual_content_found += choice_content
+                                
+                                # Handle tool calls (web search detection) from any choice
+                                if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                                    tool_calls_found.extend(delta.tool_calls)
                             
                             # Handle tool calls (web search detection)
-                            if hasattr(delta, 'tool_calls') and delta.tool_calls:
-                                for tool_call in delta.tool_calls:
-                                    if hasattr(tool_call, 'function') and tool_call.function:
-                                        if hasattr(tool_call.function, 'arguments') and tool_call.function.arguments:
-                                            tool_call_buffer += tool_call.function.arguments
-                                            
-                                            # Try to parse accumulated arguments to extract query
-                                            try:
-                                                # Look for complete JSON query in the buffer
-                                                query_match = re.search(r'"query":\s*"([^"]*)"', tool_call_buffer)
-                                                if query_match:
-                                                    search_query = query_match.group(1)
-                                                    if search_query.strip():  # Only report if we have a meaningful query
-                                                        search_message = f"\n🔍 **Web Search:** *{search_query}*\n\n"
-                                                        search_json = {"choices": [{"index": 0, "delta": {"content": search_message}}]}
-                                                        yield f"data: {json.dumps(search_json)}\n\n"
-                                                        tool_call_buffer = "" # Reset buffer after reporting
-                                                        web_search_requests_count += 1
-                                                        if self.debug:
-                                                            print(f"{self.debug_logging_prefix} Reported web search: {search_query}")
-                                            except Exception as e:
-                                                if self.debug:
-                                                    print(f"{self.debug_logging_prefix} Error parsing tool call: {e}")
+                            for tool_call in tool_calls_found:
+                                if hasattr(tool_call, 'function') and tool_call.function:
+                                    if hasattr(tool_call.function, 'arguments') and tool_call.function.arguments:
+                                        tool_call_buffer += tool_call.function.arguments
+                                        
+                                        # Try to parse accumulated arguments to extract query
+                                        try:
+                                            # Look for complete JSON query in the buffer
+                                            query_match = re.search(r'"query":\s*"([^"]*)"', tool_call_buffer)
+                                            if query_match:
+                                                search_query = query_match.group(1)
+                                                if search_query.strip():  # Only report if we have a meaningful query
+                                                    search_message = f"\n🔍 **Web Search:** *{search_query}*\n\n"
+                                                    search_json = {"choices": [{"index": 0, "delta": {"content": search_message}}]}
+                                                    yield f"data: {json.dumps(search_json)}\n\n"
+                                                    tool_call_buffer = "" # Reset buffer after reporting
+                                                    web_search_requests_count += 1
+                                                    if self.debug:
+                                                        print(f"{self.debug_logging_prefix} Reported web search: {search_query}")
+                                        except Exception as e:
+                                            if self.debug:
+                                                print(f"{self.debug_logging_prefix} Error parsing tool call: {e}")
                             
-                            if actual_content:
-                                if is_thinking_block_active and generate_thinking_block_flag:
+                            if actual_content_found:
+                                # Close thinking block if it's active and we have actual response content
+                                if is_thinking_block_active:
                                     think_end_json = {"choices": [{"index": 0, "delta": {"content": "</think>"}}]}
                                     yield f"data: {json.dumps(think_end_json)}\n\n"
                                     is_thinking_block_active = False
+                                    if self.debug:
+                                        print(f"{self.debug_logging_prefix} Closed thinking block due to actual content")
 
                                 # Add any pending citations to this content chunk
-                                content_with_citations = actual_content
+                                content_with_citations = actual_content_found
                                 if pending_citations:
                                     citation_text = ""
                                     for title, url in pending_citations:
@@ -275,37 +338,6 @@ class LiteLLMPipe:
                                 streamed_content_buffer += content_with_citations
                                 content_json = {"choices": [{"index": 0, "delta": {"content": content_with_citations}}]}
                                 yield f"data: {json.dumps(content_json)}\n\n"
-                            
-                            # Check for reasoning content from the chunk
-                            reasoning_content = getattr(delta, 'reasoning_content', None)
-                            if not reasoning_content and hasattr(chunk.choices[0], 'message'):
-                                reasoning_content = getattr(chunk.choices[0].message, 'reasoning_content', None)
-                            
-                            # Also check for thinking_blocks
-                            thinking_blocks_text = ""
-                            thinking_blocks = getattr(delta, 'thinking_blocks', None)
-                            if not thinking_blocks and hasattr(chunk.choices[0], 'message'):
-                                thinking_blocks = getattr(chunk.choices[0].message, 'thinking_blocks', None)
-                            
-                            if thinking_blocks:
-                                for tb in thinking_blocks:
-                                    if isinstance(tb, dict) and tb.get('type') == 'thinking' and tb.get('thinking'):
-                                        thinking_blocks_text += tb['thinking']
-
-                            effective_thinking_text = reasoning_content or thinking_blocks_text
-
-                            if effective_thinking_text:
-                                if self.debug:
-                                    print(f"{self.debug_logging_prefix} Reasoning content: {len(effective_thinking_text)} chars")
-                                
-                                if not is_thinking_block_active:
-                                    think_start_json = {"choices": [{"index": 0, "delta": {"content": "<think>"}}]}
-                                    yield f"data: {json.dumps(think_start_json)}\n\n"
-                                    is_thinking_block_active = True
-                                
-                                thinking_content_buffer += effective_thinking_text
-                                think_delta_json = {"choices": [{"index": 0, "delta": {"content": effective_thinking_text}}]}
-                                yield f"data: {json.dumps(think_delta_json)}\n\n"
 
                             # Periodic cost update
                             current_time = time.time()
