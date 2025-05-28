@@ -15,10 +15,11 @@ This implementation fully relies on Pipes (Manifolds) to wrap around the respons
 
 - **Usage and Costs data is logged to DB** a new table usage_costs is created in the main SQLite or Postgres DB
 - **Costs tracking works both for UI and API usage** tracking does not depend on /chat/completed calls by the Web UI
-- **DRY implementation**: common reusable logic is moved to  "module" functions. <br/>Provider-specific manifold pipe functions depend on these common modules.
-- **Calculates usage costs** using pricing data defined in a standalone function module. <br/> Edit it manually as needed if your custom pricing is different from the original providers prices.
 - **Emits status event messages** with token counts, estimated costs, request status
-- **Built-in reporting on usage costs** by users (their own costs only) and administrators (costs for all users).<br/>Talk with the 'Usage Reporting Bot' model if that pipe function is deployed and enabled
+- **Built-in reporting on usage costs** by users (their own costs only) and administrators: **Talk with the 'Usage Reporting Bot'** pipe
+- **Uses LiteLLM SDK for unified integration**
+- **Captures and displays reasoning thoughts into thinking boxes** for most models that support it
+- **Automated scripted updates of OpenWebUI base model definition:** names, descriptions, system prompts, profile icons
 
 ## Requirements
 
@@ -30,40 +31,39 @@ This implementation fully relies on Pipes (Manifolds) to wrap around the respons
 
 - Prefer short IDs for provider manifold funtions (```openai```, ```anthropic```, ```google```, etc). These IDs will become a part of the Model ID (ex: openai.gpt-4o-mini) and will be visible throughout the system such as over API, in Usage_Costs table and costs reporting, etc.
 
-- **All "module_*" functions must to be deployed**, and the ID must match the .py file name precisely (ex: ```module_openai_compatible_pipe```). 
-Other pipe functions in this repo are referencing these shared modules by their ID (hardcoded), so all modules must be deployed with an exact ID.
+- **All "module_*" functions must to be deployed**, and the ID must match the .py file name precisely (ex: ```module_litellm_pipe``` etc.). 
+Other pipe functions in this repo are referencing these shared modules by their ID (hardcoded), so all modules must be deployed with an exact ID matching the python script file name.
 
-- Provider-specific functions (openai, anthropic, google, databricks, etc.) are at your discretion - you may only deploy those that you need
+- Provider-specific functions (openai, anthropic, gemini, openrouter, etc.) can be deployed at your discretion. You may only deploy those that you need.
 
 - Double-check function IDs before saving! Any time you typed or changed the function name (when creating it for the first time), OpenWebUI automatically adjusts the ID. Make sure to fix the ID before saving the function. If you saved the function with a wrong ID, or if you are getting "function_module_... not found" error, recreate the module function with the correct ID.
 
 - Do not forget to also deploy the ``src/functionsdata/module_usage_tracking_pricing_data.py`` as one more function with  "``module_usage_tracking_pricing_data``" ID.
 
-- The "Usage Reporting Bot" function is optional, but it provides convenient access to users and administrators to view their accumulated usage costs. You may want to deploy it. 
+- The "Usage Reporting Bot" function is optional, but it provides convenient access to users and administrators to view their accumulated usage costs (adds a pseudo "model" to the list). You may want to deploy it. 
 
-- Enable all deployed functions, and configure Valves to provide API keys where applicable 
+- in Admin Settings -> Functions, enable all deployed functions and modules, and configure all Valves to provide API keys or other settings where applicable
 
-- **Additional Recommendation**: improve Model Definitions using Admin Settings -> Models section
+- **Additional Recommendation**: configure and improve Model Definitions using Admin Settings -> Models section, such as
 
-  - Visibility (Public or Private restricted to a Group)
-  - Upload logo avatar images
-  - Provide Descriptions
-  - Provide System Prompt
-  - For Usage Reporting Bot, configure a description and Custom Prompts example (/help and /usage_costs 30d)
-  - For Usage Reporting Bot
+  - Access (Public or Private restricted to a Group)
+  - Visibility (show or hide the model from themain dropdown list)
+  - Upload model profile picture images for models. **Keep them small - few kb max (64x64)**<br/> OpenWebUI return the image data for all models on every API call to the web client.
+  - Provide System Prompts for models
+  - Provide Descriptions for models
 
 ## Installation (Scripted)
 
-**1. Clone the repo locally**
+### 1. Clone the repo locally
 
-**2. (Optional) Activate virtual pyenv**
+### 2. (Optional) Activate virtual pyenv
 
-**3. Install dependencies:**
+### 3. Install dependencies:
    ```
    pip install -r requirements.txt
    ```
 
-**4. Create `.env` file with connection detials**
+### 4. Create `.env` file with connection detials
 
    ```python
    #Your OpenWebUI URL, e.g. http://localhost:3000
@@ -75,38 +75,52 @@ Other pipe functions in this repo are referencing these shared modules by their 
 
    **NOTE:** If API Key Authentication in your Open-WebUI instance is disabled or restricted by endpoints, you can use JWT Token instead (just use the token value as OPENWEBUI_API_KEY). You can obtain your current JWT token from the Browser's Developer Tools after logging into Open WebUI.  Application -> Cookies -> (your Open WebUI URL) -> "token" cookie value
    
-**5. Deploy pipe functions and modules to OpenWebUI (except Pricing Data):**
+### 5. Deploy pipe functions and modules to OpenWebUI:
 
    ```bash
-   python deploy_to_openwebui.py src/functions/*
+   python deploy_to_openwebui.py src/functions/module*                  # shared modules (must be enabled)
+   python deploy_to_openwebui.py src/functions/usage_reporting_bot.py   # Usage Reporting Bot ("model") 
+   python deploy_to_openwebui.py src/functions/openai.py                # direct OpenAI pipe via LiteLLM SDK
+   python deploy_to_openwebui.py src/functions/anthropic.py             # direct Anthropic pipe via LiteLLM SDK
+   python deploy_to_openwebui.py src/functions/gemini.py                # direct Gemini pipe via LiteLLM SDK
+   python deploy_to_openwebui.py src/functions/openrouter.py            # direct OpenRouter pipe via LiteLLM SDK
    ```
-**6. Separately deploy one more function (Pricing Data module):**
 
-   ```bash
-   python deploy_to_openwebui.py src/functions/pricing-data-module/module_usage_tracking_pricing_data.py
-   ```
-
-**7. In OpenWebUI Enable all functions and configure Valves**
+### 6. In OpenWebUI Enable all functions, configure function Valves, then configure models
    
-   Provide API keys where applicable
-   
-   For OpenAI also provide comma-separated list of enabled models
+   Provide API keys where applicable, and/or custom API URLs if required
 
+   REview Models - disable unneeded, configure visibility, names, descriptions, system prompts, access, model profile images - take from this repo ./image/logo_*.png
 
-## **Expected Result (Screenshots)**
+### 7. Scripted update of model descriptions
 
-### All Funnctions Deployed
+This script automatically creates and updates models in OpenWebUI based on the `AVAILABLE_MODELS` defined in function modules (openai, anthropic, gemini, etc.).
 
-   ![Deployed Functions Screenshot](images/deployed_functions_screenshot.png)
+**7.1. Recommended: add "SYSTEM_PROMPT" configuration to the .env file**
 
-### Interactive Status Bar displays token counts and costs for each request
+```bash
+# Required: OpenWebUI Configuration
+OPENWEBUI_API_URL=http://localhost:3000
+OPENWEBUI_API_KEY=your_openwebui_api_token_here
 
-   ![Usage Stats Status Bar](images/usage_stats_status_bar.png)
+# Optional: System prompt to be applied to all models, e.g.
+SYSTEM_PROMPT=The assistant always responds to the person in the language they use or request. If the person messages in Russian then respond in Russian, if the person messages in English then respond in English, and so on for any language.
+MARKDOWN USAGE: Use markdown for code formatting. Immediately after closing coding markdown, ask the person if they would like explanation or breakdown of the code. Avoid detailed explanation until or unless specifically requested.
+RESPONSE STYLE: Initially a shorter answer while respecting any stated length and comprehensiveness preferences. Address the specific query or task at hand, avoiding tangential information unless critical. Avoid writing lists when possible, but if the lists is needed focus on key info instead of trying to be comprehensive.
+```
 
-### Usage Reporting Bot
+**7.2. Run model update scripts**
 
-   ![Usage Reporting Bot](images/usage_reporting_bot_self.png)
-   Usages stats for yourself (regular users)
+```bash
+# Update model settings for one provider
+python update_models_in_openwebui.py  -env .env.local src/functions/openrouter.py
 
-   ![Usage Reporting Bot](images/usage_reporting_bot_all_users.png)
-   Usages stats for all users (available to admins only)
+# Update model settings for multiple providers
+python update_models_in_openwebui.py src/functions/openai.py src/functions/anthropic.py src/functions/gemini.py scc/functions/openrouter.py
+
+# Validate if all models are available in the pricing data file
+python update_models_in_openwebui.py --pricing-module ./src/functions/module_usage_tracking_pricing_data.py src/functions/openai.py
+
+# Upload models ordering list
+python update_models_in_openwebui.py -env .env.local --model-order-file ./model_order_list.json
+```

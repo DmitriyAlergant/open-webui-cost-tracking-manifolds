@@ -1,54 +1,36 @@
 #!/usr/bin/env python3
 """
-OpenWebUI Model Update Script
-
-This script automatically creates and updates models in OpenWebUI based on the
-AVAILABLE_MODELS defined in function modules (openai, anthropic, etc.).
+This script automatically creates and updates models in OpenWebUI based on the AVAILABLE_MODELS defined in function modules (openai.py, anthropic.py, etc.).
 
 Features:
 - Reads AVAILABLE_MODELS from specified function modules
-- Maps model names to appropriate provider logos
-- Sets system prompts from environment variables
-- Creates or updates models in OpenWebUI via API
-- Handles both create and update operations automatically
-- Supports custom environment files via -e flag
-- Supports logo overrides via environment variables
-- Supports submitting model order configuration via --model-order-file flag
+- Maps model names to appropriate provider logo images
+- Creates or updates model definitions in OpenWebUI via API (create or update base model definition) including model Name, Description, Capabilities, System Prompt, and Logo Image
+- Supports custom environment files via -e/--env-file/--env flag
+- Supports updating model order configuration via --model-order-file flag
 - Validates model IDs against pricing data module via --pricing-module flag
 
 Environment Variables Required:
+
 - OPENWEBUI_API_URL: OpenWebUI instance URL (default: http://localhost:3000)
 - OPENWEBUI_API_KEY: OpenWebUI API token
-- SYSTEM_PROMPT: Default system prompt for all models (optional)
 
-Logo Override Environment Variables (optional):
-- LOGO_OVERRIDES: JSON object mapping modules/models to logo paths
-  Example: LOGO_OVERRIDES='{"openrouter": "./images/logo_backup.png", "openrouter.gpt-4": "./custom_gpt4.png"}'
-- LOGO_OVERRIDE_<MODULE>: Individual logo override for a specific module
-  Example: LOGO_OVERRIDE_OPENROUTER="./images/logo_backup.png"
+Environment Variables Optional:
 
-Model Order File Format (JSON):
-{
-  "DEFAULT_MODELS": "module.model-name",
-  "MODEL_ORDER_LIST": [
-    "module.model1",
-    "module.model2",
-    ...
-  ]
-}
+- SYSTEM_PROMPT: Default system prompt for all models
+- Model logo overrides via environment variables. Examples:
+- - LOGO_OVERRIDES='{"openrouter": "./images/logo_backup.png", "openrouter.gpt-4": "./custom_gpt4.png"}'
+- - LOGO_OVERRIDE_OPENROUTER="./images/logo_backup.png"
 
 Pricing Validation:
-When --pricing-module is specified, the script validates that all model IDs from
-the imported modules exist in the pricing_data dictionary of the specified module.
+When --pricing-module is specified, the script validates that all model IDs from the imported modules exist in the pricing_data dictionary of the specified module.
 If any model IDs are missing, the script stops execution and reports the missing models.
 
 Usage:
-    python update_models_in_openwebui.py src/functions/openai.py
-    python update_models_in_openwebui.py src/functions/openai.py src/functions/anthropic.py
-    python update_models_in_openwebui.py -e .env.production src/functions/openai.py
-    python update_models_in_openwebui.py --env-file /path/to/custom.env src/functions/openai.py
-    python update_models_in_openwebui.py --model-order-file ./model_order.json src/functions/openai.py
-    python update_models_in_openwebui.py --pricing-module ./src/functions/pricing-data-module/module_usage_tracking_pricing_data.py src/functions/openai.py
+    python update_models_in_openwebui.py src/functions/openai.py src/functions/anthropic.py src/functions/gemini.py src/functions/openrouter.py
+    python update_models_in_openwebui.py --env-file .env.production src/functions/openai.py
+    python update_models_in_openwebui.py --model-order-file ./model_order.json
+    python update_models_in_openwebui.py --pricing-module ./src/functions/module_usage_tracking_pricing_data.py src/functions/openai.py
 """
 
 import os
@@ -74,7 +56,7 @@ def load_environment(env_file: Optional[str] = None) -> None:
     
     load_dotenv(dotenv_path=env_path, override=True)
     if env_file:
-        print(f"📄 Loaded environment from: {env_path}")
+        print(f"Loaded environment from: {env_path}")
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -82,17 +64,17 @@ def parse_arguments() -> argparse.Namespace:
         description="Update models in OpenWebUI based on function modules",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-    python update_models_in_openwebui.py openai
-    python update_models_in_openwebui.py anthropic
-    python update_models_in_openwebui.py -e .env.production openai
-    python update_models_in_openwebui.py --model-order-file ./model_order_list.json openai
-    python update_models_in_openwebui.py --pricing-module ./src/functions/pricing-data-module/module_usage_tracking_pricing_data.py openai
-        """
-    )
+            Examples:
+                python update_models_in_openwebui.py src/functions/openai.py
+                python update_models_in_openwebui.py -e .env.production src/functions/openai.py
+                python update_models_in_openwebui.py --env-file .env.production src/functions/openai.py
+                python update_models_in_openwebui.py --model-order-file ./model_order_list.json
+                python update_models_in_openwebui.py --pricing-module ./src/functions/pricing-data-module/module_usage_tracking_pricing_data.py src/functions/openai.py
+                    """
+        )
     
     parser.add_argument(
-        '-e', '--env-file',
+        '-e', '--env-file', '--env',
         type=str,
         help='Path to environment file (default: .env in current directory)'
     )
@@ -111,8 +93,8 @@ Examples:
     
     parser.add_argument(
         'modules',
-        nargs='+',
-        help='Module names to process (e.g., openai, anthropic)'
+        nargs='*',
+        help='Module names to process (e.g., openai, anthropic). Optional if only uploading model order.'
     )
     
     return parser.parse_args()
@@ -169,11 +151,11 @@ def parse_logo_overrides() -> Dict[str, str]:
             # Convert LOGO_OVERRIDE_PROXYAPI to proxyapi
             override_key = key[len('LOGO_OVERRIDE_'):].lower()
             overrides[override_key] = value
-            print(f"📷 Loaded logo override for {override_key}: {value}")
+            print(f"Env file indicates logo override for {override_key}: {value}")
     
     return overrides
 
-# Load logo overrides
+# Load logo overrides for custom providers
 LOGO_OVERRIDES = parse_logo_overrides()
 
 def load_logo_as_base64(logo_filename: str) -> str:
@@ -235,8 +217,8 @@ def determine_logo_provider(model_id: str) -> str:
     # Meta patterns
     if any(pattern in model_id_lower for pattern in ['llama', 'meta']):
         return 'meta'
-    # Default fallback
-    return 'openai'
+
+    return None
 
 def get_logo_data_url(model_id: str, module_name: str = None) -> str:
     """Get the base64 data URL for the appropriate logo.
@@ -248,7 +230,7 @@ def get_logo_data_url(model_id: str, module_name: str = None) -> str:
     Returns:
         Base64 data URL for the logo
     """
-    # Check for overrides in priority order:
+    # Check for overrides based on Env variables:
     # 1. Full model ID (module.model_id)
     # 2. Module name
     # 3. Model ID alone
@@ -269,13 +251,14 @@ def get_logo_data_url(model_id: str, module_name: str = None) -> str:
     if model_id in LOGO_OVERRIDES:
         return load_logo_as_base64(LOGO_OVERRIDES[model_id])
     
-    # Fall back to default provider mapping
     provider = determine_logo_provider(model_id)
-    logo_filename = LOGO_MAPPING.get(provider, 'logo_openai.png')
-    return load_logo_as_base64(logo_filename)
+    logo_filename = LOGO_MAPPING.get(provider, None) if provider else None
+    return load_logo_as_base64(logo_filename) if logo_filename else None
 
 def load_function_module(module_path: str, module_name: str) -> Optional[List[Dict[str, Any]]]:
+
     """Load a function module and extract its AVAILABLE_MODELS."""
+
     module_path = Path(module_path)
     
     if not module_path.exists():
@@ -304,7 +287,7 @@ def load_function_module(module_path: str, module_name: str) -> Optional[List[Di
     return module.AVAILABLE_MODELS
 
 def load_pricing_data_module(pricing_module_path: str) -> Optional[Dict[str, Any]]:
-    """Load a pricing data module and extract its pricing_data."""
+    
     pricing_module_path = Path(pricing_module_path)
     
     if not pricing_module_path.exists():
@@ -333,16 +316,8 @@ def load_pricing_data_module(pricing_module_path: str) -> Optional[Dict[str, Any
     return module.pricing_data
 
 def validate_models_against_pricing_data(available_models: List[Dict[str, Any]], pricing_data: Dict[str, Any], module_name: str) -> bool:
-    """Validate that all model IDs from available_models exist in pricing_data.
-    
-    Args:
-        available_models: List of model definitions from a function module
-        pricing_data: Dictionary containing pricing information for models
-        module_name: Name of the module being validated (for error messages)
-    
-    Returns:
-        True if all models are found in pricing data, False otherwise
-    """
+    """Validate that all model IDs from available_models exist in pricing_data"""
+
     missing_models = []
     
     for model in available_models:
@@ -499,33 +474,24 @@ def build_model_data(model: Dict[str, Any], module_name: str, existing_model: Op
         "pipe": {"type": "pipe"},
     }
     
-    # Add description if provided in the module
+    # Add description if provided in the function module
     if model.get("description"):
         new_model_data["meta"]["description"] = model["description"]
     
-    # Add system prompt if provided
+    # Add system prompt if provided in the env variable
     if SYSTEM_PROMPT:
         new_model_data["params"]["system"] = SYSTEM_PROMPT
     
-    # If updating, merge with existing data preserving what we're not overriding
+    # Merge recursively with existing data preserving what we're not overriding
     if existing_model:
-        # Merge recursively, preserving existing values where we're not overriding
         model_data = merge_preserve_existing(new_model_data, existing_model)
     else:
         model_data = new_model_data
     
     return model_data
 
-def submit_model_order_config(config_file: str, token: str) -> bool:
-    """Submit model order configuration to OpenWebUI.
-    
-    Args:
-        config_file: Path to JSON file containing model order configuration
-        token: OpenWebUI API token
-    
-    Returns:
-        True if successful, False otherwise
-    """
+def update_model_order_config(config_file: str, token: str) -> bool:
+
     if not os.path.exists(config_file):
         print(f"Error: Model order file {config_file} not found")
         return False
@@ -547,7 +513,7 @@ def submit_model_order_config(config_file: str, token: str) -> bool:
             print(f"Error: 'MODEL_ORDER_LIST' must be an array")
             return False
         
-        print(f"📋 Submitting model order configuration from {config_file}")
+        print(f"\nSubmitting model order configuration from {config_file}")
         print(f"   Default model: {config_data.get('DEFAULT_MODELS', 'Not specified')}")
         print(f"   Model count: {len(config_data['MODEL_ORDER_LIST'])}")
         
@@ -567,8 +533,6 @@ def submit_model_order_config(config_file: str, token: str) -> bool:
         
         response.raise_for_status()
         
-        print(f"✅ Successfully submitted model order configuration")
-        
         return True
         
     except json.JSONDecodeError as e:
@@ -585,9 +549,8 @@ def submit_model_order_config(config_file: str, token: str) -> bool:
         print(f"Error processing model order file: {e}")
         return False
 
-def process_module(module_path: str, module_name: str, token: str, pricing_data: Optional[Dict[str, Any]] = None) -> int:
-    """Process all models in a function module."""
-    print(f"\n🔄 Processing module: {module_name}")
+def process_models_from_function_module(module_path: str, module_name: str, token: str, pricing_data: Optional[Dict[str, Any]] = None) -> int:
+    print(f"\n🔄 Processing models from function module: {module_name}")
     
     # Load the module and its models
     available_models = load_function_module(module_path, module_name)
@@ -619,62 +582,71 @@ def process_module(module_path: str, module_name: str, token: str, pricing_data:
             if create_model(model_data, token):
                 success_count += 1
     
-    print(f"📊 Module {module_name}: {success_count}/{len(available_models)} models processed successfully")
+    print(f"Module {module_name}: {success_count}/{len(available_models)} models processed successfully")
     return success_count
 
 def main():
-    """Main function to process all specified modules."""
-    if not API_KEY:
-        print("Error: OPENWEBUI_API_KEY environment variable is required")
-        sys.exit(1)
-    
-    print(f"🚀 Starting model updates for OpenWebUI at {API_URL}")
-    
-    # Load pricing data module if specified
-    pricing_data = None
-    if args.pricing_module:
-        print(f"📊 Loading pricing data from: {args.pricing_module}")
-        pricing_data = load_pricing_data_module(args.pricing_module)
-        if pricing_data is None:
-            print("❌ Failed to load pricing data module. Exiting.")
-            sys.exit(1)
-        print(f"✅ Loaded pricing data for {len(pricing_data)} models")
-    
-    # Submit model order configuration if provided
-    if args.model_order_file:
-        if not submit_model_order_config(args.model_order_file, API_KEY):
-            print("Failed to submit model order configuration")
-            sys.exit(1)
-        print()  # Add spacing
-    
-    # Process modules
-    total_success = 0
-    failed_modules = []
-    
-    for module_path in args.modules:
-        module_name = os.path.basename(module_path)
-        if module_name.endswith('.py'):
-            module_name = module_name[:-3]
-        module_success = process_module(module_path, module_name, API_KEY, pricing_data)
-        if pricing_data is not None and module_success == 0:
-            # If pricing validation was enabled and no models were processed, 
-            # it means validation failed
-            failed_modules.append(module_name)
-        else:
-            total_success += module_success
-    
-    # Check if any modules failed due to pricing validation
-    if failed_modules:
-        print(f"\n❌ The following modules failed pricing validation and were not processed:")
-        for module_name in failed_modules:
-            print(f"   - {module_name}")
-        print(f"\n💡 Please add missing model pricing data to: {args.pricing_module}")
-        sys.exit(1)
-    
-    print(f"\n✅ Completed! {total_success} models processed successfully across {len(args.modules)} modules")
-    
-    if args.model_order_file:
-        print("📋 Model order configuration was also submitted successfully")
 
+    if not API_KEY:
+        print("\nError: OPENWEBUI_API_KEY environment variable is required")
+        sys.exit(1)
+    
+    if not args.modules and not args.model_order_file:
+        print("\nError: Either modules to process or --model-order-file must be specified")
+        sys.exit(1)
+    
+    print(f"\nStarting model updates for OpenWebUI at {API_URL}")
+
+    if len(args.modules) >= 1:
+    
+        # Load pricing data module if specified (used for validation)
+        pricing_data = None
+        if args.pricing_module:
+            if not args.modules:
+                print("\nWarning: --pricing-module specified but no modules to process, nothing to validate")
+            else:
+                print(f"\nLoading pricing data from: {args.pricing_module}")
+                pricing_data = load_pricing_data_module(args.pricing_module)
+                if pricing_data is None:
+                    print("\n❌ Failed to load pricing data module. Exiting.")
+                    sys.exit(1)
+                print(f"✅ Loaded pricing data for {len(pricing_data)} models")
+        
+        # Process function modules
+        total_success = 0
+        failed_modules = []
+        
+        for module_path in args.modules:
+            module_name = os.path.basename(module_path)
+            if module_name.endswith('.py'):
+                module_name = module_name[:-3]
+            module_success = process_models_from_function_module(module_path, module_name, API_KEY, pricing_data)
+            if pricing_data is not None and module_success == 0:
+                # If pricing validation was enabled and no models were processed, 
+                # it means validation failed
+                failed_modules.append(module_name)
+            else:
+                total_success += module_success
+        
+        # Check if any modules failed due to pricing validation
+        if failed_modules:
+            print(f"\n❌ The following modules failed pricing validation and were not processed:")
+            for module_name in failed_modules:
+                print(f"   - {module_name}")
+            print(f"\n💡 Please add missing model pricing data to: {args.pricing_module}")
+            sys.exit(1)
+        
+        print(f"\n✅ Completed! {total_success} models processed successfully across {len(args.modules)} modules")
+
+        
+    # Update model order configuration if provided
+    if args.model_order_file:
+        if update_model_order_config(args.model_order_file, API_KEY):
+            print("\n✅ Model order configuration was updated successfully")
+            print()
+        else:
+            print("\n❌ Failed to update model order configuration")
+            
+ 
 if __name__ == "__main__":
     main() 
