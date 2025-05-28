@@ -14,11 +14,5 @@
         "openai.gpt-4.1",
         "openai.chatgpt-4o-latest",
         "usage_reporting_bot",
-        "anthropic.claude-3-5-haiku-20241022",
-        "openai.gpt-4.1-mini",
-        "openai.o1",
-        "openai.o3-mini",
-        "openai.gpt-4.1-nano",
-        "openai.gpt-4o-mini"
     ]
 }

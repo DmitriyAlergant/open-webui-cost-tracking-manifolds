@@ -78,12 +78,12 @@ Other pipe functions in this repo are referencing these shared modules by their 
 ### 5. Deploy pipe functions and modules to OpenWebUI:
 
    ```bash
-   python deploy_to_openwebui.py src/functions/module*                  # shared modules (must be enabled)
-   python deploy_to_openwebui.py src/functions/usage_reporting_bot.py   # Usage Reporting Bot ("model") 
-   python deploy_to_openwebui.py src/functions/openai.py                # direct OpenAI pipe via LiteLLM SDK
-   python deploy_to_openwebui.py src/functions/anthropic.py             # direct Anthropic pipe via LiteLLM SDK
-   python deploy_to_openwebui.py src/functions/gemini.py                # direct Gemini pipe via LiteLLM SDK
-   python deploy_to_openwebui.py src/functions/openrouter.py            # direct OpenRouter pipe via LiteLLM SDK
+   python src/scripts/deploy_to_openwebui.py src/functions/module*                  # shared modules (must be enabled)
+   python src/scripts/deploy_to_openwebui.py src/functions/usage_reporting_bot.py   # Usage Reporting Bot ("model") 
+   python src/scripts/deploy_to_openwebui.py src/functions/openai.py                # direct OpenAI pipe via LiteLLM SDK
+   python src/scripts/deploy_to_openwebui.py src/functions/anthropic.py             # direct Anthropic pipe via LiteLLM SDK
+   python src/scripts/deploy_to_openwebui.py src/functions/gemini.py                # direct Gemini pipe via LiteLLM SDK
+   python src/scripts/deploy_to_openwebui.py src/functions/openrouter.py            # direct OpenRouter pipe via LiteLLM SDK
    ```
 
 ### 6. In OpenWebUI Enable all functions, configure function Valves, then configure models
@@ -113,22 +113,22 @@ RESPONSE STYLE: Initially a shorter answer while respecting any stated length an
 
 ```bash
 # Update model settings for one provider
-python update_models_in_openwebui.py  -env .env.local src/functions/openrouter.py
+python src/scripts/update_models_in_openwebui.py  -env .env.local src/functions/openrouter.py
 
 # Update model settings for multiple providers
-python update_models_in_openwebui.py src/functions/openai.py src/functions/anthropic.py src/functions/gemini.py scc/functions/openrouter.py
+python src/scripts/update_models_in_openwebui.py src/functions/openai.py src/functions/anthropic.py src/functions/gemini.py scc/functions/openrouter.py
 
 # Validate if all models are available in the pricing data file
-python update_models_in_openwebui.py --pricing-module ./src/functions/module_usage_tracking_pricing_data.py src/functions/openai.py
+python src/scripts/update_models_in_openwebui.py --pricing-module ./src/functions/module_usage_tracking_pricing_data.py src/functions/openai.py
 
 # Upload models ordering list
-python update_models_in_openwebui.py -env .env.local --model-order-file ./model_order_list.json
+python src/scripts/update_models_in_openwebui.py -env .env.local --model-order-file ./model_order_list.json
 ```
 
 ### 8. Test all deployed OpenWebUI models (automation)
 
 ```bash
-python test_all_openwebui_models.py --env .env.local
+python src/scripts/test_all_openwebui_models.py --env .env.local
 ```
 
 Example Output

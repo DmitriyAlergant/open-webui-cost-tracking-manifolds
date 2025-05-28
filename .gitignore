@@ -38,8 +38,8 @@ vendor/
 # venv
 .venv/
 
-# Custom configuration for another deployment (standalone repo)
-src/functions/gb-llm/*
+# Custom configuration (standalone repo)
+gb-llm*
 
 # Sensitive scripts that contain API keys (wrappers around deploy_to_openwebui.sh)
 upload_*.sh
