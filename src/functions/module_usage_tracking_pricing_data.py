@@ -266,6 +266,38 @@ pricing_data = {
         "token_units": 1000000,
         "cost_currency": "USD",
     },
+    "deepseek-chat-v3": {
+        "input_cost_per_token": 0.35,
+        "output_cost_per_token": 0.35,
+        "input_display_cost_per_token": 1.3,
+        "output_display_cost_per_token": 1.3,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },
+    "deepseek-r1": {
+        "input_cost_per_token": 0.80,
+        "output_cost_per_token": 0.80,
+        "input_display_cost_per_token": 2.50,
+        "output_display_cost_per_token": 2.50,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },
+    "deepseek/deepseek-chat-v3": {
+        "input_cost_per_token": 0.35,
+        "output_cost_per_token": 0.35,
+        "input_display_cost_per_token": 1.3,
+        "output_display_cost_per_token": 1.3,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },
+    "deepseek/deepseek-r1": {
+        "input_cost_per_token": 0.80,
+        "output_cost_per_token": 0.80,
+        "input_display_cost_per_token": 2.50,
+        "output_display_cost_per_token": 2.50,
+        "token_units": 1000000,
+        "cost_currency": "USD",
+    },
 }
 
 # For OpenWebUI to accept this as a Function Module, there has to be a Filter or Pipe or Action class
