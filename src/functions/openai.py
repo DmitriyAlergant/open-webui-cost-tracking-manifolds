@@ -205,7 +205,7 @@ class Pipe:
         if body["messages"][0]["role"] == "system" and ("o1-mini" in body["model"] or "o1-preview" in body["model"]):
             body["messages"][0]["role"] = "user"
 
-        if body["stream"]:
+        if "stream" in body and body["stream"]:
             body["stream_options"] = {"include_usage": True}
 
         if self.valves.DEBUG:

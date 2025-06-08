@@ -78,7 +78,7 @@ class LiteLLMPipe:
 
        
         # This should not hurt
-        if body["stream"]:
+        if "stream" in body and body["stream"]:
             body["stream_options"] = {"include_usage": True}
 
         cost_tracking_manager = cost_tracker_module.CostTrackingManager(

@@ -102,7 +102,7 @@ class Pipe:
         # Set generate_thinking_block based on model configuration
         body["generate_thinking_block"] = model_config.get("generate_thinking_block", False)
 
-        if body["stream"]:
+        if "stream" in body and body["stream"]:
             body["stream_options"] = {"include_usage": True}
         
         return await self.get_litellm_pipe(full_model_id=full_model_id, provider="databricks") \
