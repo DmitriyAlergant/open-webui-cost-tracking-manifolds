@@ -114,9 +114,8 @@ class Pipe:
         # Allow disabling thinking for Gemini 2.5 flash models, and disalbe by default
 
         if "gemini-2.5-flash" in model_id_without_prefix:
-
             reasoning_effort = body.get("reasoning_effort")
-            if reasoning_effort is None or str(reasoning_effort).lower() in ("none", "off", "disabled", "false", "no"):
+            if reasoning_effort is None or str(reasoning_effort).lower() in ("none", "off", "disabled", "disable", "no"):
 
                 body["thinking"] = {"type": "disabled", "budget_tokens": 0}
                 body.pop("reasoning_effort") if body.get("reasoning_effort") else None
@@ -125,13 +124,7 @@ class Pipe:
             body["generate_thinking_block"] = False # either thinking is dsiabled, or it is enabled but LiteLLM currently has a bug and will stream thoughts as normal text - so no block needed
 
         if "gemini-2.5-pro" in model_id_without_prefix:
-
-            if body.get("reasoning_effort") and body.get("reasoning_effort") in ("low", "medium", "high"):
-                body["generate_thinking_block"] = False # LiteLLM currently has a bug and will stream thoughts as normal text. User will see thoughts. No block needed
-            else:
-                body["generate_thinking_block"] = True # Gemini 2.5 Pro will still be thinking but LiteLLM will not be returning thoughts 
-                body.pop("reasoning_effort") if body.get("reasoning_effort") else None
-                print ("Removing reasoning_effort from body")
+            body["generate_thinking_block"] = True # Gemini 2.5 Pro will still be thinking but LiteLLM will not be returning thoughts 
 
         if self.valves.DEBUG and "gemini" in model_id_without_prefix:
             print("generate_thinking_block: ", body["generate_thinking_block"])       

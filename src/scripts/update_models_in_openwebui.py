@@ -489,6 +489,10 @@ def build_model_data(model: Dict[str, Any], module_name: str, existing_model: Op
     if "search" in model['id'] and WEB_SEARCH_SYSTEM_PROMPT_ADDITION:
         new_model_data["params"]["system"] += "\n\n" + WEB_SEARCH_SYSTEM_PROMPT_ADDITION
 
+    # Add reasoning_effort parameter if provided in the model definition
+    if model.get("reasoning_effort"):
+        new_model_data["params"]["reasoning_effort"] = model["reasoning_effort"]
+
     # Merge recursively with existing data preserving what we're not overriding
     if existing_model:
         model_data = merge_preserve_existing(new_model_data, existing_model)

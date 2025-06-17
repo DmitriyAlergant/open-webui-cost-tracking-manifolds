@@ -901,9 +901,9 @@ class Pipe:
 
         # Construct the prompt
         prompt = (get_messages_content(body["messages"]) +      
-                        f"""^^ THIS WAS PRIOR CONVERSATION CONTEXT^^
+                f"""^^ ABOVE THIS THIS WAS A PRIOR CONVERSATION CONTEXT^^
                         
-                        NOW, you are a SQL query generator. Generate a SQL query for the following question:
+                NOW, you are a SQL query generator. Generate a SQL query for the following question (or a follow-up question):
 
                 Question: {question}
 
@@ -912,21 +912,26 @@ class Pipe:
                 Schema:
                 {schema}
 
-                Note: the Task column is NULL for the regular chat requests; Task can be "title_generation", "tags_generation", "query_generation", "autocomplete_generation" made by the UI tool that accompany chats.
+                Notes: 
                 
-                Make a reasonable assumption about the users intention if they want information only from main chat completion requests (Task is NULL) or to include task usage. 
+                - The Task column is NULL for the regular chat requests; Task can be "title_generation", "tags_generation", "query_generation", "autocomplete_generation" made by the UI tool that accompany chats.
                 
-                For costs summarization, typically all tasks can be included. If a breakdown by model is requested,  only the main chat completions (task is NULL) should be included. 
-                
-                For counting usage/requests, only main chat completions (task is NULL) should be included. If unsure, consider building the report to separately highlight both numbers.
+                - Unless told otherwise, assume the user wants to continue the prior exploration of the data (from the previous requests). Interpret new request in the light of the prior conversation and previously discussed conditions.
 
-                Unless asked otherwise use "total_cost" column, as "display_cost" may be using artificially adjusted lower pricing for end-users to encounrage usage, or both (if so requested). Never use "display_cost" column alone.
+                - Make a reasonable assumption about the users intention if they want information only from main chat completion requests (Task is NULL) or to include all requests including task usage. 
+                    For costs summarization, typically all tasks can be included. If a breakdown by model is requested,  only the main chat completions (task is NULL) should be included. 
+                    If a breakdown by model is requested,  only the main chat completions (task is NULL) should be included. 
+                    For counting usage/requests, only main chat completions (task is NULL) should be included. If unsure, consider building the report to separately highlight both numbers.
 
-                Availability of JSON metadata->chat_id indicates web usage (chat_id is not NULL) vs API usage (chat_id is NULL).
+                - Unless asked otherwise use "total_cost" column, as "display_cost" may be using artificially adjusted lower pricing for end-users to encounrage usage, or both (if so requested). Never use "display_cost" column alone.
 
-                Columns "provider", "last_updated_timestamp", "last_updated_status" were only added to the table approximately in end of May 2025.
+                - Availability of JSON metadata->chat_id indicates web usage (chat_id is not NULL) vs API usage (chat_id is NULL).
 
-                The query must start with SELECT and end with a semicolon. Generate only the SQL query, nothing else. DO NOT use WITH or CTE clauses.""")
+                - Note, the "metadata" column is a String although it contains JSON. It is not a native JSON column. In PostgreSQL you cannot use the ->> operator directly on the column but you can do metadata::json->>'chat_id'.
+
+                - Columns "provider", "last_updated_timestamp", "last_updated_status" were only added to the table approximately in end of May 2025.
+
+                - The query must start with SELECT and end with a semicolon. Generate only the SQL query, nothing else. DO NOT use WITH or CTE clauses.""")
 
         try:
             # Create AsyncOpenAI client

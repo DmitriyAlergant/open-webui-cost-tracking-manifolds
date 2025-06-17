@@ -4,7 +4,7 @@ author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
 required_open_webui_version: 0.6.9
-requirements: litellm==1.71.1
+requirements: litellm==1.72.6
 license: MIT
 """
 
@@ -15,7 +15,7 @@ import sys
 import re
 from typing import Union, Any, Awaitable, Callable, List
 from fastapi.responses import StreamingResponse
-from open_webui.utils.misc import get_messages_content
+from open_webui.utils.misc import get_messages_content, get_last_user_message_item, get_content_from_message
 from open_webui.models.functions import Functions
 from pydantic import BaseModel, Field
 
@@ -40,14 +40,22 @@ def is_debug_valve_enabled():
 class LiteLLMPipe:
 
     def __init__(self, debug, debug_logging_prefix="", litellm_settings=None, full_model_id=None, provider=None):
+        
         self.debug = is_debug_valve_enabled()
-        self.debug_logging_prefix = debug_logging_prefix
+        self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
+
         self.litellm_settings = litellm_settings if litellm_settings else {}
         self.full_model_id = full_model_id
         self.provider = provider
 
         os.environ['LITELLM_LOG'] = 'INFO'
-        
+
+        # Default LiteLLM budgets are too low
+        os.environ['DEFAULT_REASONING_EFFORT_LOW_THINKING_BUDGET'] = '2048'
+        os.environ['DEFAULT_REASONING_EFFORT_MEDIUM_THINKING_BUDGET'] = '8192'
+        os.environ['DEFAULT_REASONING_EFFORT_HIGH_THINKING_BUDGET'] = '16384'
+
+
         # if self.debug:
         #     os.environ['LITELLM_LOG'] = 'DEBUG'
         #     litellm._turn_on_debug()
@@ -60,6 +68,9 @@ class LiteLLMPipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__,
     ) -> Union[str, StreamingResponse]:
+        
+        if "allowed_openai_params" in body:
+            print(f"{self.debug_logging_prefix} Allowed OpenAI params: {body['allowed_openai_params']}")
 
         cost_tracker_module_name = MODULE_USAGE_TRACKING
         if cost_tracker_module_name not in sys.modules:
@@ -88,6 +99,33 @@ class LiteLLMPipe:
             task=__task__,
             provider=self.provider
         )
+
+        # Check if last user message only contains attachments and no/empty text
+        # Anthropic refuses to work on attachments only without any meaningful user message text
+        last_user_message = get_last_user_message_item(body["messages"])
+        if last_user_message:
+            last_user_content = get_content_from_message(last_user_message)
+            # If last user message has no text content or empty text content but has content structure (likely attachments)
+            if (not last_user_content or not last_user_content.strip()) and last_user_message.get("content"):
+                if self.debug:
+                    print(f"{self.debug_logging_prefix} Last user message has no/empty text content, fixing for Anthropic compatibility")
+                # Find the last user message in the list and fix the text content
+                messages_copy = body["messages"].copy()
+                for i in range(len(messages_copy) - 1, -1, -1):
+                    if messages_copy[i]["role"] == "user":
+                        if isinstance(messages_copy[i]["content"], list):
+                            # Find existing text content item and update it, or add one
+                            text_item_found = False
+                            for content_item in messages_copy[i]["content"]:
+                                if content_item.get("type") == "text":
+                                    content_item["text"] = "."
+                                    text_item_found = True
+                                    break
+                            # If no text item found, add one
+                            if not text_item_found:
+                                messages_copy[i]["content"].append({"type": "text", "text": "."})
+                        break
+                body = {**body, "messages": messages_copy}
 
         # Prepare the payload for LiteLLM
         payload = {**body}

@@ -1,5 +1,5 @@
 """
-title: LiteLLM Manifold (Anthropic)
+title: Fallback Router Module (Generic)
 author: Dmitriy Alergant
 author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
@@ -12,7 +12,55 @@ from fastapi.responses import StreamingResponse
 from typing import Union, Any, Awaitable, Callable, AsyncIterator
 import sys
 import asyncio
+import traceback
 from open_webui.models.functions import Functions
+
+MODULE_FALLBACK_ROUTER = "module_fallback_router"
+
+def is_debug_valve_enabled():
+    module_valves_data = Functions.get_function_valves_by_id(MODULE_FALLBACK_ROUTER)
+    debug = module_valves_data.get("DEBUG", False) if module_valves_data else False
+   
+    # if debug:
+    #     print("LiteLLM Pipe Module: Debug valve is enabled")
+    
+    return debug
+
+
+def log_exception_with_location(exception: Exception, context: str = "", debug_prefix: str = ""):
+    """
+    Log exception message with compact stack trace (up to 10 frames)
+    
+    Args:
+        exception: The exception to log
+        context: Additional context string (e.g., "primary failed", "secondary failed")
+        debug_prefix: Debug logging prefix to use
+    """
+    # Get the traceback without printing it
+    tb = traceback.extract_tb(exception.__traceback__)
+    
+    # Build compact call chain (up to 10 frames)
+    if tb:
+        # Take last 10 frames (most recent calls)
+        frames_to_show = tb[-10:] if len(tb) > 10 else tb
+        
+        # Format each frame compactly: basename:line in function
+        frame_strs = []
+        for frame in frames_to_show:
+            filename = frame.filename.split('/')[-1]  # Just the basename
+            frame_str = f"{filename}:{frame.lineno} in {frame.name}"
+            frame_strs.append(frame_str)
+        
+        # Join with arrow to show call chain
+        location = " -> ".join(frame_strs)
+    else:
+        location = "unknown location"
+    
+    # Format the log message
+    context_str = f"{context} - " if context else ""
+    message = f"{debug_prefix}{context_str}Exception: {type(exception).__name__}: {str(exception)} (at {location})"
+    
+    print(message)
 
 
 class StreamingResponseWrapper:
@@ -42,7 +90,7 @@ class StreamingResponseWrapper:
                 
             except Exception as e:
                     
-                print(f"{self.debug_logging_prefix} primary chunk failed, attempting fallback. Exception: {e}")
+                log_exception_with_location(e, "primary chunk failed, attempting fallback", self.debug_logging_prefix)
                 
                 try:
                     fallback_response = await self.fallback_func()
@@ -54,7 +102,7 @@ class StreamingResponseWrapper:
                         yield fallback_response
                         
                 except Exception as fallback_error:
-                    print(f"{self.debug_logging_prefix} Fallback also failed: {fallback_error}")
+                    log_exception_with_location(fallback_error, "Fallback also failed", self.debug_logging_prefix)
                     combined_error = Exception(f"Primary error: {e}.\n Fallback error: {fallback_error}")
                     raise combined_error
 
@@ -66,8 +114,9 @@ class StreamingResponseWrapper:
             except Exception as e:
                 # After first chunk, any exceptions are raised without fallback
                 if self.debug:
-                    print(f"{self.debug_logging_prefix} Streaming error after first chunk (no fallback): {e}")
+                    log_exception_with_location(e, "Streaming error after first chunk (no fallback)", self.debug_logging_prefix)
                 raise e
+
 
 class Pipe:
     class Valves(BaseModel):
@@ -75,15 +124,11 @@ class Pipe:
 
     def __init__(self):
         self.type = "manifold"
-        self.id = "anthropic_fallback"
-        self.name = "anthropic_fallback/"
+        self.id = "fallback_router"
+        self.name = "fallback_router/"
 
         self.valves = self.Valves()
 
-        self.valves.DEBUG = Functions.get_function_valves_by_id("module_fallback_router").get("DEBUG", False)
-
-        print ("self.valves", self.valves)
-       
         self.debug_logging_prefix = "DEBUG:    " + __name__ + " - "
 
     def get_module(self, prefix: str):
@@ -109,9 +154,12 @@ class Pipe:
         __event_emitter__: Callable[[Any], Awaitable[None]],
         __task__
     ) -> Union[str, StreamingResponse]:
-        
+
+        # Logically this would have been done in the init, but then the function fails to import first time (until it already exists)
+        self.valves.DEBUG = is_debug_valve_enabled()
+
         if self.valves.DEBUG:
-            print(f"{self.debug_logging_prefix} Anthropic Manifold received request body: {body}")
+            print(f"{self.debug_logging_prefix} Fallback router received request body: {body}")
 
         # Get the original model ID and extract prefix
         original_model = body.get("model", "")
@@ -149,6 +197,10 @@ class Pipe:
         
         # Extract the module prefix from model_id
         module_prefix = model_id.split(".", 1)[0] if "." in model_id else model_id
+        
+        if self.valves.DEBUG:
+            print(f"{self.debug_logging_prefix} module_prefix: {module_prefix}")
+
         module = self.get_module(module_prefix)
         pipe = module.Pipe()
 
@@ -194,7 +246,7 @@ class Pipe:
             return await self._try_primary(body, model_config, model_prefix, __user__, __metadata__, __event_emitter__, __task__)
             
         except Exception as e:
-            print(f"{self.debug_logging_prefix} primary failed with error: {e}")
+            log_exception_with_location(e, "primary failed", self.debug_logging_prefix)
             
             # Check if secondary model is available before attempting fallback
             if not self._has_secondary_model(model_config):
@@ -208,8 +260,7 @@ class Pipe:
                 return await self._try_secondary(body, model_config, model_prefix, __user__, __metadata__, __event_emitter__, __task__)
                 
             except Exception as fallback_error:
-                if self.valves.DEBUG:
-                    print(f"{self.debug_logging_prefix} secondary also failed with error: {fallback_error}")
+                log_exception_with_location(fallback_error, "secondary also failed", self.debug_logging_prefix)
                 
                 # If both fail, raise the original primary error with context
                 raise Exception(f"Both primary and secondary failed. primary error: {e}. secondary error: {fallback_error}")
@@ -217,6 +268,9 @@ class Pipe:
 
     async def _handle_streaming_with_fallback(self, body, model_config, model_prefix, __user__, __metadata__, __event_emitter__, __task__):
         """Handle streaming requests with first-chunk testing and fallback"""
+
+        if self.valves.DEBUG:
+            print(f"{self.debug_logging_prefix} Fallback router _handle_streaming_with_fallback body: {body}")
         
         # Create closures that capture the context for the wrapper
         async def try_primary_closure():
@@ -255,7 +309,7 @@ class Pipe:
                 return primary_response
                 
         except Exception as e:
-            print(f"{self.debug_logging_prefix} primary failed immediately with error: {e}")
+            log_exception_with_location(e, "primary failed immediately", self.debug_logging_prefix)
             
             # Check if secondary model is available before attempting fallback
             if not self._has_secondary_model(model_config):
