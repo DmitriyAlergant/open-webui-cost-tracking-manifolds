@@ -16,14 +16,14 @@ MODULE_LITELLM_PIPE = "function_module_litellm_pipe"
 
 AVAILABLE_MODELS = [
     {
-        "id": "gemini-2.5-pro-preview",
-        "litellm_model_id": "openrouter/google/gemini-2.5-pro-preview",
+        "id": "gemini-2.5-pro",
+        "litellm_model_id": "openrouter/google/gemini-2.5-pro",
         "name": "Gemini 2.5 Pro via OpenRouter",
         "generate_thinking_block": True
     },
     {
-        "id": "gemini-2.5-flash-preview-05-20",
-        "litellm_model_id": "openrouter/google/gemini-2.5-flash-preview-05-20",
+        "id": "gemini-2.5-flash",
+        "litellm_model_id": "openrouter/google/gemini-2.5-flash",
         "name": "Gemini 2.5 Flash via OpenRouter",
         "generate_thinking_block": True
     },
