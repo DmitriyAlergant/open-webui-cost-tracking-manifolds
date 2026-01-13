@@ -45,3 +45,5 @@ gb-llm*
 
 # Sensitive scripts that contain API keys (wrappers around deploy_to_openwebui.sh)
 upload_*.sh
+
+downloaded_functions/
