@@ -46,7 +46,7 @@ def get_existing_function(function_id, token):
     return res_json
 
 def deploy_function(filename, token):
-    with open(filename, 'r') as file:
+    with open(filename, 'r', encoding='utf-8') as file:
         content = file.read()
     
     metadata = extract_metadata(content)
@@ -118,8 +118,12 @@ def deploy_functions(file_pattern, token):
             print(f"Metadata validation error in {filename}: {e}")
         except requests.exceptions.RequestException as e:
             print(f"Error deploying function {filename}: {e}")
+        except UnicodeEncodeError as e:
+            print(f"Unicode encoding error in {filename}: {e}")
         except Exception as e:
             print(f"Error deploying function {filename}: {e}")
+            import traceback
+            traceback.print_exc()
     
     return results
 

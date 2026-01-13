@@ -1,7 +1,7 @@
 """
 title: OpenRouter Manifold
-author: Dmitriy Alergant
-author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
+author: 
+author_url: 
 version: 0.1.0
 required_open_webui_version: 0.6.9
 license: MIT
@@ -28,9 +28,9 @@ AVAILABLE_MODELS = [
         "generate_thinking_block": True
     },
     {
-        "id": "x-ai/grok-3-beta",
-        "litellm_model_id": "openrouter/x-ai/grok-3-beta",
-        "name": "Grok 3",
+        "id": "x-ai/grok-4",
+        "litellm_model_id": "openrouter/x-ai/grok-4",
+        "name": "Grok 4",
         "generate_thinking_block": False
     },
     {

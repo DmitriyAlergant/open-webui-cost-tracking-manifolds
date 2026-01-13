@@ -1,7 +1,7 @@
 """
 title: LiteLLM Manifold (Anthropic)
-author: Dmitriy Alergant
-author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
+author: 
+author_url: 
 version: 0.1.0
 required_open_webui_version: 0.6.9
 license: MIT
@@ -16,23 +16,18 @@ MODULE_LITELLM_PIPE = "function_module_litellm_pipe"
 
 AVAILABLE_MODELS = [
     {
+        "id": "claude-opus-4-1-20250805",
+        "litellm_model_id": "anthropic/claude-opus-4-1-20250805",
+        "name": "Claude 4.1 Opus",
+        "max_output_tokens": 32000,
+        "supports_extended_thinking": True,
+    },
+    {
         "id": "claude-opus-4-20250514",
         "litellm_model_id": "anthropic/claude-opus-4-20250514",
         "name": "Claude 4 Opus",
         "max_output_tokens": 32000,
         "supports_extended_thinking": True,
-    },
-    {
-        "id": "claude-opus-4-20250514-websearch",
-        "litellm_model_id": "anthropic/claude-opus-4-20250514",
-        "name": "Claude 4 Opus with Web Search",
-        "max_output_tokens": 32000,
-        "supports_extended_thinking": True,
-        "additional_body_params": {
-            "web_search_options": {
-                "search_context_size": "medium"
-            }
-        },
     },
     {
         "id": "claude-sonnet-4-20250514",

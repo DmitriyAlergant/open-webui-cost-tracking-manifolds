@@ -13,6 +13,6 @@
         "openai.gpt-4.5-preview",
         "openai.gpt-4.1",
         "openai.chatgpt-4o-latest",
-        "usage_reporting_bot",
+        "usage_reporting_bot"
     ]
 }

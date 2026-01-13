@@ -1,7 +1,7 @@
 """
 title: Google Gemini Manifold
-author: Dmitriy Alergant
-author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
+author: 
+author_url: 
 version: 0.1.0
 required_open_webui_version: 0.6.9
 license: MIT
@@ -118,8 +118,8 @@ class Pipe:
             body["generate_thinking_block"] = False # either thinking is dsiabled, or it is enabled but LiteLLM currently has a bug and will stream thoughts as normal text - so no block needed
 
         if "gemini-2.5-pro" in model_id_without_prefix:
-            body["generate_thinking_block"] = True # Gemini 2.5 Pro will still be thinking but LiteLLM will not be returning thoughts 
-
+            body["generate_thinking_block"] = True 
+            
         if self.valves.DEBUG and "gemini" in model_id_without_prefix:
             print("generate_thinking_block: ", body["generate_thinking_block"])       
             print("reasoning_effort: ", body.get("reasoning_effort"))    
