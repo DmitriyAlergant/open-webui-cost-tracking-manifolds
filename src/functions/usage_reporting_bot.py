@@ -1,7 +1,7 @@
 """
 title: Usage Costs reporting bot
-author: 
-author_url: 
+author: Dmitriy Alergant
+author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
 version: 0.1.0
 required_open_webui_version: 0.5.0
 license: MIT
@@ -901,9 +901,9 @@ class Pipe:
 
         # Construct the prompt
         prompt = (get_messages_content(body["messages"]) +      
-                f"""^^ ABOVE THIS THIS WAS A PRIOR CONVERSATION CONTEXT^^
+                        f"""^^ THIS WAS PRIOR CONVERSATION CONTEXT^^
                         
-                NOW, you are a SQL query generator. Generate a SQL query for the following question (or a follow-up question):
+                        NOW, you are a SQL query generator. Generate a SQL query for the following question:
 
                 Question: {question}
 
@@ -912,26 +912,21 @@ class Pipe:
                 Schema:
                 {schema}
 
-                Notes: 
+                Note: the Task column is NULL for the regular chat requests; Task can be "title_generation", "tags_generation", "query_generation", "autocomplete_generation" made by the UI tool that accompany chats.
                 
-                - The Task column is NULL for the regular chat requests; Task can be "title_generation", "tags_generation", "query_generation", "autocomplete_generation" made by the UI tool that accompany chats.
+                Make a reasonable assumption about the users intention if they want information only from open_webui.main chat completion requests (Task is NULL) or to include task usage. 
                 
-                - Unless told otherwise, assume the user wants to continue the prior exploration of the data (from the previous requests). Interpret new request in the light of the prior conversation and previously discussed conditions.
+                For costs summarization, typically all tasks can be included. If a breakdown by model is requested,  only the main chat completions (task is NULL) should be included. 
+                
+                For counting usage/requests, only main chat completions (task is NULL) should be included. If unsure, consider building the report to separately highlight both numbers.
 
-                - Make a reasonable assumption about the users intention if they want information only from main chat completion requests (Task is NULL) or to include all requests including task usage. 
-                    For costs summarization, typically all tasks can be included. If a breakdown by model is requested,  only the main chat completions (task is NULL) should be included. 
-                    If a breakdown by model is requested,  only the main chat completions (task is NULL) should be included. 
-                    For counting usage/requests, only main chat completions (task is NULL) should be included. If unsure, consider building the report to separately highlight both numbers.
+                Unless asked otherwise use "total_cost" column, as "display_cost" may be using artificially adjusted lower pricing for end-users to encounrage usage, or both (if so requested). Never use "display_cost" column alone.
 
-                - Unless asked otherwise use "total_cost" column, as "display_cost" may be using artificially adjusted lower pricing for end-users to encounrage usage, or both (if so requested). Never use "display_cost" column alone.
+                Availability of JSON metadata->chat_id indicates web usage (chat_id is not NULL) vs API usage (chat_id is NULL).
 
-                - Availability of JSON metadata->chat_id indicates web usage (chat_id is not NULL) vs API usage (chat_id is NULL).
+                Columns "provider", "last_updated_timestamp", "last_updated_status" were only added to the table approximately in end of May 2025.
 
-                - Note, the "metadata" column is a String although it contains JSON. It is not a native JSON column. In PostgreSQL you cannot use the ->> operator directly on the column but you can do metadata::json->>'chat_id'.
-
-                - Columns "provider", "last_updated_timestamp", "last_updated_status" were only added to the table approximately in end of May 2025.
-
-                - The query must start with SELECT and end with a semicolon. Generate only the SQL query, nothing else. DO NOT use WITH or CTE clauses.""")
+                The query must start with SELECT and end with a semicolon. Generate only the SQL query, nothing else. DO NOT use WITH or CTE clauses.""")
 
         try:
             # Create AsyncOpenAI client
