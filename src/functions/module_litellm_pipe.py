@@ -1,10 +1,10 @@
 """
 title: LiteLLM Pipe Module (Generic)
-author: Dmitriy Alergant
-author_url: https://github.com/DmitriyAlergant-t1a/open-webui-cost-tracking-manifolds
+author: 
+author_url: 
 version: 0.1.0
 required_open_webui_version: 0.6.9
-requirements: litellm==1.72.6
+requirements: litellm==1.75.5.post1
 license: MIT
 """
 
@@ -31,11 +31,16 @@ def is_debug_valve_enabled():
     """Check if debug valve is enabled for this module"""
     module_valves_data = Functions.get_function_valves_by_id(MODULE_LITELLM_PIPE)
     debug = module_valves_data.get("DEBUG", False) if module_valves_data else False
-    
+
     if debug:
         print("LiteLLM Pipe Module: Debug valve is enabled")
-    
+
     return debug
+
+def get_deprecation_message():
+    """Get the deprecation message from module valves"""
+    module_valves_data = Functions.get_function_valves_by_id(MODULE_LITELLM_PIPE)
+    return module_valves_data.get("DEPRECATION_MESSAGE", "") if module_valves_data else ""
 
 class LiteLLMPipe:
 
@@ -86,6 +91,29 @@ class LiteLLMPipe:
         cost_tracker_module = sys.modules[cost_tracker_module_name]
 
         model_for_cost_tracking = self.full_model_id or body["model"]
+
+        # Get deprecation message from valves
+        deprecation_message = get_deprecation_message()
+
+        # Check if this is a UI request (chat_id is present and not empty)
+        chat_id = __metadata__.get("chat_id", "")
+        is_ui_request = bool(chat_id)
+
+        if self.debug:
+            print(f"{self.debug_logging_prefix} Chat ID: {chat_id}, Is UI request: {is_ui_request}")
+
+        # Strip deprecation message from previous assistant messages if present
+        if deprecation_message:
+            messages_copy = body.get("messages", []).copy()
+            for msg in messages_copy:
+                if msg.get("role") == "assistant" and msg.get("content"):
+                    content = msg["content"]
+                    if isinstance(content, str) and content.startswith(deprecation_message):
+                        # Remove the deprecation message and any trailing newlines
+                        msg["content"] = content[len(deprecation_message):].lstrip("\n")
+                        if self.debug:
+                            print(f"{self.debug_logging_prefix} Stripped deprecation message from assistant message")
+            body = {**body, "messages": messages_copy}
 
        
         # This should not hurt
@@ -175,7 +203,7 @@ class LiteLLMPipe:
                     last_update_time = 0
                     stream_completed_successfully = False
                     stream_error_occurred = False
-                    
+
                     first_chunk_received = False
                     # Citation buffering
                     pending_citations = []
@@ -184,7 +212,17 @@ class LiteLLMPipe:
                     tool_call_buffer = ""
                     web_search_requests_count = 0
 
+                    # Flag to track if deprecation message has been injected
+                    deprecation_injected = False
+
                     try:
+                        # Inject deprecation message at the beginning for UI requests
+                        if is_ui_request and deprecation_message and not deprecation_injected:
+                            deprecation_json = {"choices": [{"index": 0, "delta": {"content": deprecation_message + "\n\n"}}]}
+                            yield f"data: {json.dumps(deprecation_json)}\n\n"
+                            deprecation_injected = True
+                            if self.debug:
+                                print(f"{self.debug_logging_prefix} Injected deprecation message at stream start")
                         if generate_thinking_block_flag:
                             if self.debug:
                                 print(f"{self.debug_logging_prefix} Starting LiteLLM async streaming with synthetic thinking block heartbeat....")
@@ -701,6 +739,10 @@ class LiteLLMPipe:
 class Pipe:
     class Valves(BaseModel):
         DEBUG: bool = Field(default=False, description="Enable debug logging for LiteLLM Pipe module.")
+        DEPRECATION_MESSAGE: str = Field(
+            default="",
+            description="Optional deprecation message to show at the beginning of UI chat responses (not API). Leave empty to disable."
+        )
 
     def __init__(self):
         self.type = "manifold_helper"
